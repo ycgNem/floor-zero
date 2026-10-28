@@ -30,12 +30,15 @@ export const RECIPES = {
   iron_mail: { name: 'Iron mail', station: 'forge', skill: 'smithing', level: 12, inputs: { iron_ore: 14 }, cost: 50, output: { equip: 'armour', item: 'iron_mail' }, xp: 300, description: '+30 max health.' },
   cobalt_pickaxe: { name: 'Cobalt pickaxe', station: 'forge', skill: 'smithing', level: 14, inputs: { tempered_pick_head: 1, iron_ore: 6 }, cost: 60, output: { equip: 'pickaxe', item: 'cobalt_pickaxe' }, xp: 400, requires: 'pick_head_found', sets: 'cobalt_pick_forged', description: 'Builders’ steel on a new haft. It can cut cobalt.' },
   surge_lantern: { name: 'Surge lantern', station: 'forge', skill: 'smithing', level: 10, inputs: { pressure_valve: 1, iron_ore: 4 }, cost: 30, output: { equip: 'resonance', item: 'surge_lantern' }, xp: 260, requires: 'sluicekeeper_defeated', description: 'The Sluicekeeper’s valve in a lantern housing. Burns a core to release a shockwave.' },
-  cobalt_blade: { name: 'Cobalt blade', station: 'forge', skill: 'smithing', level: 18, inputs: { cobalt_ore: 8, iron_ore: 4 }, cost: 80, output: { equip: 'blade', item: 'cobalt_blade' }, xp: 520, description: 'Holds an edge like nothing else in town.' },
+  cobalt_blade: { name: 'Cobalt blade', station: 'forge', skill: 'smithing', level: 18, inputs: { cobalt_ore: 8, iron_ore: 4 }, cost: 80, output: { equip: 'blade', item: 'cobalt_blade' }, xp: 520, requires: 'forge_bellows', description: 'Holds an edge like nothing else in town. Needs the great bellows’ heat.' },
+  delvers_pack: { name: 'Delver’s pack', station: 'forge', skill: 'smithing', level: 8, inputs: { planks: 4, rope: 2, iron_ore: 4 }, cost: 60, output: { equip: 'pack', item: 'delvers_pack' }, xp: 160, requires: 'forge_bellows', description: 'Riveted frame, six more slots.' },
 
   cooked_minnow: { name: 'Cooked minnow', station: 'kitchen', skill: 'cooking', level: 1, inputs: { cave_minnow: 1 }, output: { item: 'cooked_minnow', count: 1 }, xp: 30 },
   glowcap_broth: { name: 'Glowcap broth', station: 'kitchen', skill: 'cooking', level: 5, inputs: { glowcap: 2, cave_minnow: 1 }, output: { item: 'glowcap_broth', count: 1 }, xp: 45 },
   smoked_eel: { name: 'Smoked eel', station: 'kitchen', skill: 'cooking', level: 10, inputs: { lantern_eel: 1 }, output: { item: 'smoked_eel', count: 1 }, xp: 60 },
   cavefish_stew: { name: 'Cavefish stew', station: 'kitchen', skill: 'cooking', level: 20, inputs: { white_cavefish: 1, lampmoss: 1 }, output: { item: 'cavefish_stew', count: 1 }, xp: 110 },
+  eel_skewers: { name: 'Eel skewers', station: 'kitchen', skill: 'cooking', level: 12, inputs: { lantern_eel: 1, glowcap: 2 }, output: { item: 'eel_skewers', count: 1 }, xp: 75, requires: 'kitchen_expanded' },
+  delvers_pie: { name: 'Delver’s pie', station: 'kitchen', skill: 'cooking', level: 16, inputs: { cave_minnow: 2, lampmoss: 1, trail_bread: 1 }, output: { item: 'delvers_pie', count: 1 }, xp: 95, requires: 'kitchen_expanded' },
 } as const satisfies Record<string, RecipeDef>;
 
 export type RecipeId = keyof typeof RECIPES;

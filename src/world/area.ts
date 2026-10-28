@@ -1,6 +1,8 @@
 import type * as THREE from 'three';
 import type { AreaId } from '../data/ids';
 import type { Game } from '../game';
+import type { AirSettings } from '../render/air-pass';
+import type { GradeName } from '../render/grade-pass';
 import type { LevelKit } from './level-kit';
 
 export interface Spawn {
@@ -48,5 +50,9 @@ export interface AreaDef {
   fog: { color: number; density: number };
   /** Motes in the air underground: their tint and strength. */
   dust?: { color?: number; opacity?: number };
+  /** How the air holds lamplight. Underground areas default to dusty air. */
+  air?: AirSettings;
+  /** Colour grade. Underground areas default to 'dungeon', Bellwether to 'town'. */
+  grade?: GradeName;
   build(ctx: AreaContext): AreaRuntime;
 }

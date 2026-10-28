@@ -12,7 +12,7 @@ async function boot(): Promise<void> {
   const physics = await Physics.create();
   const game = new Game(canvas, ui, physics);
   installDebug(game);
-  await game.materials.preload(Math.min(8, game.renderer.gl.capabilities.getMaxAnisotropy()));
+  await Promise.all([game.materials.preload(Math.min(8, game.renderer.gl.capabilities.getMaxAnisotropy())), game.viewmodel.preload()]);
   game.start();
 }
 

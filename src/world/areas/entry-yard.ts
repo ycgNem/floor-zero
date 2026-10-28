@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { createRng } from '../../core/rng';
+import { noticeboard as noticeboardPanel } from '../../town/noticeboard';
+import { NODE_PLACEMENTS } from '../../data/placements';
 import type { AreaDef, Interactable, Spawn } from '../area';
 import { restBench } from '../safe-room';
-import { barrel, bench, cart, crate, lanternPost, noticeboard, rails, rubble, stalactites, supportFrame, wallLantern } from '../props';
+import { barrel, bench, cart, crate, lanternPost, noticeboard, pipe, rails, rubble, stalactites, supportFrame, wallLantern } from '../props';
 import { liftCage } from '../structures';
 
 /** Floor 1. The lift landing, the yard, the worker shelter, and the way down. */
@@ -131,7 +133,7 @@ export const entryYard: AreaDef = {
         mode: 'press',
         enabled: () => true,
         label: () => 'Read the noticeboard',
-        press: () => game.hud.toast('Galleries south. Mind the Bellcaps. Report cave-ins to Mara.'),
+        press: () => game.panels.show(() => noticeboardPanel(game, 'Entry Yard')),
       },
       {
         id: 'yard-galleries-way',
@@ -148,6 +150,26 @@ export const entryYard: AreaDef = {
       restBench(game, 'yard-shelter-rest', new THREE.Vector3(10.5, 0.6, 13.4)),
     );
 
+
+    // Town Works: the freight hoist beside the lift, sending a pack up to storage on its own line.
+    if (game.hasFlag('hoist_built')) {
+      const hoist = [-3.9, 0, 3.6] as const;
+      for (const dx of [-0.8, 0.8]) kit.box({ at: [hoist[0] + dx, 1.7, hoist[2]], size: [0.18, 3.4, 0.18], mat: 'wood_dark' });
+      kit.box({ at: [hoist[0], 3.45, hoist[2]], size: [2, 0.2, 0.22], mat: 'wood_dark', collide: false });
+      kit.box({ at: [hoist[0], 3.25, hoist[2]], size: [0.32, 0.32, 0.12], mat: 'metal', collide: false });
+      pipe(kit, [hoist[0], 3.3, hoist[2]], [hoist[0], 6, hoist[2]], 0.02, 'canvas');
+      pipe(kit, [hoist[0], 1.2, hoist[2]], [hoist[0], 3.2, hoist[2]], 0.02, 'canvas');
+      crate(kit, [hoist[0], 0.25, hoist[2]], 0.75, 0.1);
+      interactables.push({
+        id: 'yard-hoist',
+        position: new THREE.Vector3(hoist[0], 1, hoist[2]),
+        radius: 0.9,
+        mode: 'press',
+        enabled: () => true,
+        label: () => 'Send your pack up on the freight hoist',
+        press: () => game.town.freight('on the hoist'),
+      });
+    }
 
     // An old quarry shaft, grated over. It drops straight to Lantern Pool, once someone rigs a ladder from below.
     const shaftAt = [7.6, 0, 34] as const;
@@ -182,17 +204,7 @@ export const entryYard: AreaDef = {
       },
     });
 
-    game.gathering.spawn(kit, [
-      { id: 'ey-copper-1', type: 'copper_seam', at: [-9.6, 0, 20.5] },
-      { id: 'ey-copper-2', type: 'copper_seam', at: [-9.8, 0, 26] },
-      { id: 'ey-copper-3', type: 'copper_seam', at: [9.8, 0, 30.5] },
-      { id: 'ey-copper-4', type: 'copper_seam', at: [-5.5, 0, 35] },
-      { id: 'ey-copper-5', type: 'copper_seam', at: [6.4, 0, 9.6] },
-      { id: 'ey-iron-1', type: 'iron_seam', at: [16, 0, 19.2] },
-      { id: 'ey-iron-2', type: 'iron_seam', at: [16.2, 0, 22.8] },
-      { id: 'ey-glowcap-1', type: 'glowcap_patch', at: [-7.5, 0, 17.2] },
-      { id: 'ey-glowcap-2', type: 'glowcap_patch', at: [12.8, 0, 18.6] },
-    ], interactables);
+    game.gathering.spawn(kit, NODE_PLACEMENTS['entry-yard'], interactables);
 
     // The cracked wall: builders' stone behind quarry rubble. Needs an iron pick and Mining 12.
     let wallBreaking = -1;

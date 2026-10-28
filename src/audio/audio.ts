@@ -3,7 +3,7 @@ import * as THREE from 'three';
 export type SoundName =
   | 'step' | 'swing' | 'hit' | 'weak' | 'pick' | 'yield' | 'bolt' | 'surge' | 'hurt' | 'telegraph'
   | 'slam' | 'kill' | 'coin' | 'pickup' | 'level' | 'ui' | 'splash' | 'bite' | 'catch' | 'deflect'
-  | 'heal' | 'valve' | 'lift' | 'roar' | 'full';
+  | 'heal' | 'valve' | 'lift' | 'roar' | 'full' | 'glint';
 
 export type Ambience = 'town' | 'mine' | 'water' | 'machine';
 export type Music = 'town' | 'delve' | 'boss';
@@ -211,6 +211,10 @@ export class AudioEngine {
       case 'yield':
         this.tone(out, 'sine', 1318, 1318, 0.005, 0.5, 0.1);
         this.tone(out, 'sine', 1760, 1760, 0.005, 0.6, 0.08, 0.08);
+        break;
+      case 'glint':
+        // A bright shimmer: something catching the light in the rock.
+        [3520, 4186, 4699, 5274].forEach((f, i) => this.tone(out, 'sine', f * r(0.01), f, 0.002, 0.35, 0.035, i * 0.045));
         break;
       case 'bolt':
         this.tone(out, 'sawtooth', 420, 90, 0.002, 0.16, 0.2);

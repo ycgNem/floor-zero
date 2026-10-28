@@ -70,7 +70,7 @@ export class Combat implements EnemyHost {
   damagePlayer(amount: number, from: THREE.Vector3, knockback?: THREE.Vector3): void {
     const g = this.game;
     if (this.defeated || g.mode !== 'playing' || g.player.invulnerable > 0 || this.hurtGrace > 0) return;
-    const dealt = Math.max(1, Math.round(amount * g.settings.damageTaken));
+    const dealt = Math.max(1, Math.round(amount * g.settings.damageTaken * g.progress.buffScale('damageTaken')));
     g.state.player.health -= dealt;
     this.hurtGrace = 0.35;
     g.player.addShake(0.35);

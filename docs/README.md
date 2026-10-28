@@ -17,6 +17,7 @@ These docs are the source of truth for what we're building. The original pitch c
 | [09 Content Pipeline](09-content-pipeline.md) | Blender to glTF rules, asset folders, art direction |
 | [10 Roadmap](10-roadmap.md) | Milestones up to the vertical slice, the M0 task list |
 | [11 Decisions & Questions](11-decisions-and-questions.md) | What's decided, what's still open |
+| [12 Art Direction](12-art-direction.md) | The look: light, materials, readability, each area's identity |
 
 ## How to use these
 

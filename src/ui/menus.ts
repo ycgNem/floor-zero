@@ -2,8 +2,16 @@ import type { Quality } from '../render/renderer';
 import { button, el } from './dom';
 import { saveSettings, type Settings } from './settings';
 
+/** One skill's page in the guide: where you are, and everything it unlocks. */
+export interface GuidePage {
+  name: string;
+  level: number;
+  unlocks: { level: number; text: string }[];
+}
+
 export interface MenuCallbacks {
   hasSave(): boolean;
+  skillGuide(): GuidePage[];
   onContinue(): void;
   onNewGame(): void;
   onResume(): void;
@@ -12,7 +20,7 @@ export interface MenuCallbacks {
   onSettingsChanged(settings: Settings): void;
 }
 
-type Screen = 'none' | 'title' | 'pause' | 'settings';
+type Screen = 'none' | 'title' | 'pause' | 'settings' | 'guide';
 
 /** Title, pause, and settings screens. */
 export class Menus {
@@ -68,6 +76,7 @@ export class Menus {
     const list = el('div', 'menu-list', box);
     button('Resume', list, () => this.callbacks.onResume(), 'btn primary');
     button('Save', list, () => this.callbacks.onSave());
+    button('Skill guide', list, () => this.showGuide());
     button('Settings', list, () => this.showSettings('pause'));
     button('Quit to title', list, () => this.callbacks.onQuitToTitle());
     el('p', 'menu-hint', box, 'Click Resume, or click the game, to keep playing.');
@@ -95,6 +104,25 @@ export class Menus {
     this.toggle(box, 'Damage numbers', s.hitsplats, (v) => { s.hitsplats = v; changed(); });
     const list = el('div', 'menu-list', box);
     button('Back', list, () => (this.back === 'title' ? this.showTitle() : this.showPause()), 'btn primary');
+  }
+
+  /** RuneScape's skill guide: every unlock for every skill, with the ones you've reached lit. */
+  showGuide(selected = 0): void {
+    this.show('guide');
+    const pages = this.callbacks.skillGuide();
+    const box = el('div', 'menu-box guide-box', this.root);
+    el('h2', 'menu-heading', box, 'Skill guide');
+    const tabs = el('div', 'segmented guide-tabs', box);
+    pages.forEach((page, i) => button(`${page.name} ${page.level}`, tabs, () => this.showGuide(i), i === selected ? 'seg on' : 'seg'));
+    const page = pages[selected];
+    const list = el('div', 'guide-list', box);
+    for (const unlock of page?.unlocks ?? []) {
+      const row = el('div', `guide-row${page && unlock.level <= page.level ? ' done' : ''}`, list);
+      el('span', 'guide-level', row, String(unlock.level));
+      el('span', '', row, unlock.text);
+    }
+    const back = el('div', 'menu-list', box);
+    button('Back', back, () => this.showPause(), 'btn primary');
   }
 
   private show(screen: Screen): void {

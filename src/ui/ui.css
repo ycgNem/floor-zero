@@ -305,7 +305,8 @@
 .banner {
   position: absolute;
   left: 50%;
-  top: 28%;
+  /* Below the area caption (18%), so a level-up on arrival never lands on top of it. */
+  top: 33%;
   transform: translateX(-50%);
   text-align: center;
   opacity: 0;
@@ -351,6 +352,43 @@
   color: var(--ink);
   text-shadow: 0 1px 3px #000;
   animation: toast-in 0.2s ease-out;
+}
+
+.trip {
+  position: absolute;
+  right: 26px;
+  top: 150px;
+  width: 300px;
+  padding: 14px 16px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: var(--panel);
+  opacity: 0;
+  transform: translateX(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  pointer-events: none;
+}
+
+.trip.show {
+  opacity: 1;
+  transform: none;
+}
+
+.trip-eyebrow {
+  margin-bottom: 8px;
+  font-family: var(--display);
+  font-size: 19px;
+  color: var(--brass);
+}
+
+.trip-line {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.trip-line.dim {
+  color: var(--ink-dim);
 }
 
 .tracker {
@@ -493,6 +531,12 @@
   display: block;
   height: 100%;
   background: var(--brass);
+}
+
+.skill-next {
+  grid-column: span 2;
+  font-size: 11px;
+  color: var(--ink-dim);
 }
 
 .card-hint {

@@ -85,9 +85,11 @@ The **Town Works board** lists community projects. Each needs delivered material
 
 This is the Town track from [04](04-progression.md), and it's always visible in the world, never just a number in a menu.
 
+**Built so far (M6):** the freight hoist (at the Entry Yard landing, with its derrick over the shaft), the kitchen's second hearth, and the forge's great bellows. The east bridge and the greenhouse are still to come. Repairing the Sluicekeeper works the same way, but you hand the parts in at the Pump Station itself.
+
 ## Your home
 
-You start in a room above the Counterweight. Eventually you can buy a small house or workshop overlooking the shaft. It's a personal milestone alongside the main campaign, and it answers the question: what am I earning all this money for, besides earning more efficiently?
+You start in a room above the Counterweight. Eventually you can buy a small house or workshop overlooking the shaft. In the slice that's the old lamplighter's house on the plaza ring, west of the lift: Hollis sells it for 300 bells (D33). It's a personal milestone alongside the main campaign, and it answers the question: what am I earning all this money for, besides earning more efficiently?
 
 Your house offers:
 

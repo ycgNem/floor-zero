@@ -1,8 +1,37 @@
 import * as THREE from 'three';
 import { createRng, randRange } from '../../core/rng';
+import type { Game } from '../../game';
+import { NODE_PLACEMENTS } from '../../data/placements';
 import type { AreaDef, Interactable, Spawn } from '../area';
 import { cart, lanternPost, rails, rubble, stalactites, supportFrame, wallLantern } from '../props';
 import { pool } from '../water';
+
+/** You found Tavi in the dark: share some food, get them up, and walk them back to the pool hut. */
+async function rescueTavi(game: Game): Promise<void> {
+  const leave = { label: 'Leave', onClick: () => game.panels.close() };
+  const food = game.combat.hotbar()[0];
+  if (!food) {
+    game.panels.show(() => ({
+      name: 'Tavi',
+      role: 'Delver',
+      text: 'You came. Of course you came.\n\nGot anything to eat? Something took a bite of my leg in the dark, and I can’t stand on an empty stomach and a chewed leg. Anything. Even trail bread.',
+      options: [leave],
+    }));
+    return;
+  }
+  game.progress.take(food.item, 1);
+  game.setFlag('tavi_rescued');
+  await game.travel('lantern-pool', 'hut', 'walk');
+  game.state.player.equipment.charm = 'lucky_knot';
+  game.hud.announce('New charm', 'Tavi’s lucky knot');
+  game.panels.show(() => ({
+    name: 'Tavi',
+    role: 'Delver',
+    text: 'Two years down here and the first time I need hauling out, it’s by the new one. Mara’s going to love this.\n\nHere. My lucky knot. Clearly it works better on you than on me. Tie it on your boot: you’ll find an extra step when you need one.\n\nAnd the tracks went on past the tunnel, into the big den. Whatever came up from below, it’s living there.',
+    options: [leave],
+  }));
+  game.save();
+}
 
 /** The pitch-dark tunnel to the lair, as a box on the floor plan: [x0, z0, x1, z1]. */
 const DARK = [-19.5, 24, -8.6, 28] as const;
@@ -59,7 +88,8 @@ export const lowerCut: AreaDef = {
     rubble(kit, rng, [-6, 0, 2.5], 1.2, 7);
 
     // The first cobalt anyone has seen in years, glowing in the west wall.
-    kit.pointLight({ at: [-6.4, 1.3, 18], color: 0x3a6aff, intensity: 5, distance: 7, bulb: false });
+    // The cobalt's own glow. It lights the rock round it, but it's no lamp, so the air barely holds it.
+    kit.pointLight({ at: [-6.4, 1.3, 18], color: 0x3a6aff, intensity: 5, distance: 7, bulb: false }).userData.air = 0.2;
 
     // The freight tunnel up to the Broken Galleries. Its gate is bolted on this side.
     kit.room({ at: [-13.5, 0, 6], size: [9, 4, 3.2], wall: 'rock', floor: 'rock', openings: [{ side: 'e', width: 2.6, height: 3.4 }] });
@@ -92,6 +122,21 @@ export const lowerCut: AreaDef = {
     // The dark tunnel. Something lives in it that hates light.
     kit.room({ at: [-14, 0, 26], size: [10, 3.6, 3], wall: 'rock', floor: 'rock', openings: [{ side: 'e', width: 2.6, height: 3.2 }, { side: 'w', width: 2.6, height: 3.2 }] });
     rubble(kit, rng, [-12, 0, 25], 0.6, 4);
+
+    // Tavi, pressed against the tunnel wall beside a guttering lantern, if they went in after the Irregular.
+    let taviLamp: THREE.PointLight | null = null;
+    if (game.hasFlag('tavi_missing') && !game.hasFlag('tavi_rescued')) {
+      const tavi = game.town.spawn(kit, 'tavi', new THREE.Vector3(-14.6, -0.42, 27.05), Math.PI, interactables);
+      tavi.group.rotation.x = -0.12;
+      const talk = interactables.find((i) => i.id === 'npc-tavi');
+      if (talk) {
+        talk.position.setY(0.9);
+        talk.label = () => 'Help Tavi';
+        talk.press = () => void rescueTavi(game);
+      }
+      kit.box({ at: [-13.8, 0.12, 27.1], size: [0.2, 0.24, 0.2], mat: 'metal', collide: false });
+      taviLamp = kit.pointLight({ at: [-13.8, 0.35, 27.0], color: 0xff9a4a, intensity: 1.4, distance: 5 });
+    }
 
     // The Hollowhorn's lair: bones, scorched fissures, and two rock pillars it can be baited into.
     kit.room({ at: [-30, 0, 26], size: [20, 9, 20], wall: 'rock', floor: 'dirt', openings: [{ side: 'e', width: 2.6, height: 3.2 }] });
@@ -141,16 +186,7 @@ export const lowerCut: AreaDef = {
       },
     );
 
-    game.gathering.spawn(kit, [
-      { id: 'lc-cobalt-1', type: 'cobalt_seam', at: [-7.1, 0, 18] },
-      { id: 'lc-iron-1', type: 'iron_seam', at: [-6.6, 0, 8.5] },
-      { id: 'lc-iron-2', type: 'iron_seam', at: [-6.8, 0, 31] },
-      { id: 'lc-iron-3', type: 'iron_seam', at: [2.8, 0, 37] },
-      { id: 'lc-copper-1', type: 'copper_seam', at: [3, 0, 4] },
-      { id: 'lc-lampmoss-1', type: 'lampmoss_patch', at: [-5.5, 0, 41.5] },
-      { id: 'lc-lampmoss-2', type: 'lampmoss_patch', at: [2.4, 0, 2.2] },
-      { id: 'lc-lampmoss-3', type: 'lampmoss_patch', at: [-36, 0, 30] },
-    ], interactables);
+    game.gathering.spawn(kit, NODE_PLACEMENTS['lower-cut'], interactables);
 
     game.combat.spawn(kit, [
       { id: 'lc-sinkmaw-1', type: 'sinkmaw', at: [-2, 0, 14] },
@@ -205,7 +241,10 @@ export const lowerCut: AreaDef = {
           game.hud.toast('Something bites you from the dark. You need more light than this.', 'warn');
         }
       },
-      frame: (dt, time) => stream.frame(dt, time * 5),
+      frame: (dt, time) => {
+        stream.frame(dt, time * 5);
+        if (taviLamp) taviLamp.intensity = 1.1 + Math.sin(time * 13) * 0.3 + (Math.sin(time * 2.3) > 0.9 ? -0.6 : 0);
+      },
       dispose: () => {
         offKilled();
         stream.dispose();

@@ -1,8 +1,11 @@
 import { SKILL_IDS, type AreaId, type FlagId, type SkillId } from '../data/ids';
 import type { BuffId } from '../data/buffs';
+import type { DailyCondition } from '../data/conditions';
 import type { ItemId } from '../data/items';
+import type { ProjectId } from '../data/projects';
 
-export const SAVE_VERSION = 1;
+/** v2 added daily conditions, town projects, and the pack and charm slots. */
+export const SAVE_VERSION = 2;
 
 export interface ItemStack {
   item: ItemId;
@@ -18,6 +21,15 @@ export interface Equipment {
   resonance: ItemId | null;
   armour: ItemId | null;
   lantern: ItemId | null;
+  /** A bigger pack from Oren's forge. */
+  pack: ItemId | null;
+  charm: ItemId | null;
+}
+
+/** A Town Works project: what's been handed in, and the day it was paid for. */
+export interface ProjectState {
+  delivered: Partial<Record<ItemId, number>>;
+  fundedOn: number | null;
 }
 
 export interface PlayerState {
@@ -56,11 +68,16 @@ export interface WorldState {
   counters: Record<string, number>;
   /** Today's accepted optional objective. */
   objective: { id: string; progress: number; done: boolean } | null;
+  /** The noticeboard's local conditions, rolled once for `day`. */
+  conditions: { day: number; list: DailyCondition[] };
+  projects: Partial<Record<ProjectId, ProjectState>>;
   /** Seconds played. */
   playTime: number;
 }
 
 export const PACK_SLOTS = 24;
+/** Slots the delver's pack adds. */
+export const BIG_PACK_SLOTS = 6;
 
 export function emptySkills(): Record<SkillId, number> {
   const skills = {} as Record<SkillId, number>;
@@ -93,6 +110,8 @@ export function createNewState(seed: number = Date.now() % 1_000_000): WorldStat
         resonance: null,
         armour: null,
         lantern: null,
+        pack: null,
+        charm: null,
       },
       buffs: [],
     },
@@ -102,6 +121,8 @@ export function createNewState(seed: number = Date.now() % 1_000_000): WorldStat
     soldToday: {},
     counters: {},
     objective: null,
+    conditions: { day: 0, list: [] },
+    projects: {},
     playTime: 0,
   };
 }

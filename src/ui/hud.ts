@@ -152,16 +152,17 @@ export class Hud {
     setTimeout(() => node.remove(), 2600);
   }
 
-  setObjectives(main: string, optional: string | null): void {
-    const text = `${main}|${optional ?? ''}`;
+  /** The main task, then optional lines: today's job and any side work. */
+  setObjectives(main: string, optional: readonly string[]): void {
+    const text = `${main}|${optional.join('|')}`;
     if (this.tracker.dataset.text === text) return;
     this.tracker.dataset.text = text;
     this.tracker.replaceChildren();
     el('div', 'tracker-label', this.tracker, 'Main');
     el('div', 'tracker-main', this.tracker, main);
-    if (optional) {
+    if (optional.length > 0) {
       el('div', 'tracker-label', this.tracker, 'Optional');
-      el('div', 'tracker-optional', this.tracker, optional);
+      for (const line of optional) el('div', 'tracker-optional', this.tracker, line);
     }
   }
 

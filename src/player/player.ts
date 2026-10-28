@@ -33,6 +33,8 @@ export class Player {
   /** Multiplies move speed. Combat sets it every step (eating, aiming). */
   speedMultiplier = 1;
   dashCharges = DASH_CHARGES;
+  /** How many dash charges you can hold. A charm can add one. */
+  maxDashCharges = DASH_CHARGES;
   /** Multiplies dash recharge time (meal buffs). */
   dashRechargeScale = 1;
   /** Seconds of invulnerability left (dash i-frames, respawn grace). */
@@ -117,7 +119,7 @@ export class Player {
   fixedUpdate(dt: number): void {
     this.prevFeet.copy(this.feet);
     if (this.invulnerable > 0) this.invulnerable -= dt;
-    if (this.dashCharges < DASH_CHARGES) {
+    if (this.dashCharges < this.maxDashCharges) {
       this.dashRecharge += dt;
       if (this.dashRecharge >= DASH_RECHARGE * this.dashRechargeScale) {
         this.dashCharges++;

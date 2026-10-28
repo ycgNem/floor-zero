@@ -1,10 +1,11 @@
 import { SKILL_IDS, SKILL_NAMES } from '../data/ids';
 import { ITEMS } from '../data/items';
 import type { Game } from '../game';
-import { PACK_SLOTS } from '../save/world-state';
+import { nextUnlock } from '../skills/guide';
 import { levelProgress } from '../skills/xp';
+import { describeCondition } from '../story/conditions';
 import { trackerJob } from '../story/jobs';
-import { mainObjective } from '../story/story';
+import { mainObjective, sideObjective } from '../story/story';
 import { el } from './dom';
 
 const RANK_TITLES = ['Unlicensed', 'Novice Delver', 'Delver', 'Senior Delver', 'Expert Delver', 'Master Delver'];
@@ -48,14 +49,20 @@ export class ExpeditionCard {
     el('div', 'card-sub', left, `Day ${s.day} · ${RANK_TITLES[p.licenseRank] ?? ''} · ${p.money} bells`);
     el('div', 'card-label', left, 'Main');
     el('div', 'card-text', left, mainObjective(g));
-    const job = trackerJob(g);
-    if (job) {
+    const optional = [trackerJob(g), sideObjective(g)].filter((line): line is string => line !== null);
+    if (optional.length > 0) {
       el('div', 'card-label', left, 'Optional');
-      el('div', 'card-text dim', left, job);
+      for (const line of optional) el('div', 'card-text dim', left, line);
     }
-    el('div', 'card-label', left, `Pack (${p.pack.length}/${PACK_SLOTS})`);
+    const today = g.conditions.map(describeCondition);
+    if (today.length > 0) {
+      el('div', 'card-label', left, 'Today below');
+      el('div', 'card-text dim', left, today.map((c) => c.title).join(' · '));
+    }
+    const slots = g.progress.packSlots();
+    el('div', 'card-label', left, `Pack (${p.pack.length}/${slots})`);
     const grid = el('div', 'pack-grid', left);
-    for (let i = 0; i < PACK_SLOTS; i++) {
+    for (let i = 0; i < slots; i++) {
       const stack = p.pack[i];
       const slot = el('div', `slot${stack ? ` kind-${ITEMS[stack.item].kind}` : ''}`, grid);
       if (stack) {
@@ -66,7 +73,7 @@ export class ExpeditionCard {
     }
     el('div', 'card-label', left, 'Gear');
     const eq = p.equipment;
-    const gear = [eq.pickaxe, eq.blade, eq.boltcaster, eq.rod, eq.armour, eq.lantern, eq.resonance]
+    const gear = [eq.pickaxe, eq.blade, eq.boltcaster, eq.rod, eq.armour, eq.lantern, eq.resonance, eq.pack, eq.charm]
       .filter((x): x is NonNullable<typeof x> => x !== null)
       .map((id) => ITEMS[id].name);
     el('div', 'card-text dim', left, gear.join(' · '));
@@ -80,7 +87,9 @@ export class ExpeditionCard {
       el('span', 'skill-level', row, String(progress.level));
       const bar = el('div', 'skill-bar', row);
       el('i', '', bar).style.width = `${Math.round(progress.fraction * 100)}%`;
+      const next = nextUnlock(id, progress.level);
+      if (next) el('div', 'skill-next', row, `${next.level}: ${next.text}`);
     }
-    el('div', 'card-hint', right, 'Tab to close');
+    el('div', 'card-hint', right, 'Tab to close · the full skill guide is in the pause menu');
   }
 }

@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import { createRng, randRange } from '../../core/rng';
 import { noticeboard as noticeboardPanel } from '../../town/noticeboard';
+import { worksBoard } from '../../town/works';
+import type { Game } from '../../game';
+import type { PanelSpec } from '../../ui/panels';
+import { skyDome } from '../../render/sky';
 import type { AreaDef, Interactable, Spawn } from '../area';
+import { buildHome } from '../home';
 import type { MaterialKey } from '../materials';
-import { barrel, building, crate, faceCenter, lanternPost, noticeboard, offset, polar, railing, wallLantern } from '../props';
+import { barrel, cart, crate, faceCenter, lanternPost, noticeboard, offset, pipe, polar, railing, wallLantern } from '../props';
 import { headframe, liftCage, marketStall } from '../structures';
+import { hangingLine, paving, plantedTree, ringWall, stackedTown, townhouse } from '../town-ring';
 
 export const SHAFT_R = 7;
 const WALL_R = 37;
@@ -17,7 +23,27 @@ export const TOWN_SPOTS = {
   inn: 180,
   kitchen: 245,
   market: 312,
+  home: 275,
+  works: 300,
 } as const;
+
+/** Mara's lift: the Entry Yard, and once the Pump Station runs, the station five floors down. */
+function liftPanel(game: Game): PanelSpec {
+  const go = (area: 'entry-yard' | 'pump-station'): void => {
+    game.panels.close();
+    void game.travel(area, 'lift', 'lift');
+  };
+  return {
+    name: 'The main lift',
+    role: 'Mara',
+    text: 'Cable runs all the way to the station now. First time in my life I’ve had to ask anyone which floor.',
+    options: [
+      { label: 'Floor 1: the Entry Yard', onClick: () => go('entry-yard') },
+      { label: 'Floor 5: the Pump Station', onClick: () => go('pump-station') },
+      { label: 'Not yet', onClick: () => game.panels.close() },
+    ],
+  };
+}
 
 /** Position in front of a town building, where its keeper stands. */
 export function keeperSpot(angle: number): THREE.Vector3 {
@@ -30,6 +56,9 @@ export const liftPlaza: AreaDef = {
   name: 'Bellwether',
   floor: 0,
   fog: { color: 0x0f1522, density: 0.011 },
+  // The shaft breathes cold mist that never quite reaches the plaza.
+  air: { scatter: 0.004, mist: { color: 0x16222e, density: 0.1, floor: -16, falloff: 0.22 } },
+  grade: 'town',
   build({ game, kit }) {
     const rng = createRng(1107);
     const evening = game.state.evening;
@@ -62,42 +91,26 @@ export const liftPlaza: AreaDef = {
       }
     }
 
-    // The ancient ring wall, with ledges and houses stacked up it.
-    const wallSegments = 56;
-    for (let i = 0; i < wallSegments; i++) {
-      const a = (i / wallSegments) * 360;
-      const width = (2 * Math.PI * (WALL_R + 1.5)) / wallSegments + 0.15;
-      kit.box({ at: polar(a, WALL_R + 1.5, 21), size: [width, 42, 3], mat: 'ancient', rotY: faceCenter(a), shadow: false });
-      for (const ledge of [10, 19, 28]) {
-        kit.box({ at: polar(a, WALL_R - 1.8, ledge), size: [width, 0.8, 3.6], mat: 'stone_wall', rotY: faceCenter(a), collide: false, shadow: false });
-      }
-    }
-    for (const ledge of [10, 19, 28]) {
-      for (let a = rng() * 30; a < 360; a += randRange(rng, 16, 30)) {
-        const wall: MaterialKey = rng() > 0.6 ? 'brick' : rng() > 0.5 ? 'stone_wall' : 'plaster';
-        building(kit, {
-          at: polar(a, WALL_R - 3.4, ledge + 0.4),
-          yaw: faceCenter(a),
-          width: randRange(rng, 3.5, 6.5),
-          depth: 3,
-          height: randRange(rng, 3.5, 5.5),
-          wall,
-          windows: rng() > 0.4 ? 2 : 1,
-          door: rng() > 0.5,
-          collide: false,
-        });
-      }
-    }
+    // The builders' ring, and the town crowded up it: lit windows on every terrace come evening.
+    ringWall(kit);
+    stackedTown(kit, rng, evening ? 0.72 : 0.12, [TOWN_SPOTS.home]);
+    paving(kit, SHAFT_R + 0.7, WALL_R);
 
     // Town buildings at plaza level.
-    const shop = (angle: number, width: number, height: number, wall: MaterialKey, windows: number, awning = false): void => {
-      building(kit, { at: polar(angle, FRONT_R), yaw: faceCenter(angle), width, depth: 6, height, wall, windows, awning });
-      wallLantern(kit, offset(polar(angle, FRONT_R), faceCenter(angle), width / 2 - 0.6, 2.6, 0.12), faceCenter(angle), 6);
+    const shop = (angle: number, width: number, floors: number, wall: MaterialKey, roof: 'gable' | 'gable-front', awning = false): void => {
+      const at = polar(angle, FRONT_R);
+      const yaw = faceCenter(angle);
+      townhouse(kit, { at, yaw, width, depth: 6, floors, wall, roof, lit: evening ? 0.85 : 0.2, rng, collide: true, chimney: true, shutters: true });
+      wallLantern(kit, offset(at, yaw, width / 2 - 0.6, 2.6, 0.12), yaw, 6);
+      if (awning) {
+        kit.box({ at: offset(at, yaw, 0, 2.75, 0.9), size: [width * 0.8, 0.06, 1.9], mat: 'canvas', rotY: yaw, rotX: 0.28, collide: false });
+        for (const side of [-1, 1]) kit.box({ at: offset(at, yaw, side * width * 0.38, 1.25, 1.75), size: [0.1, 2.5, 0.1], mat: 'wood_dark', rotY: yaw });
+      }
     };
-    shop(TOWN_SPOTS.survey, 9, 7, 'stone_wall', 3);
-    shop(TOWN_SPOTS.forge, 8, 6, 'brick', 2);
-    shop(TOWN_SPOTS.inn, 12, 8, 'plaster', 4);
-    shop(TOWN_SPOTS.kitchen, 8, 6, 'plaster', 2, true);
+    shop(TOWN_SPOTS.survey, 9, 2, 'stone_wall', 'gable');
+    shop(TOWN_SPOTS.forge, 8, 2, 'brick', 'gable-front');
+    shop(TOWN_SPOTS.inn, 12, 3, 'plaster', 'gable');
+    shop(TOWN_SPOTS.kitchen, 8, 2, 'plaster', 'gable-front', true);
 
     const forgeYaw = faceCenter(TOWN_SPOTS.forge);
     const forgeFront = polar(TOWN_SPOTS.forge, FRONT_R);
@@ -116,9 +129,62 @@ export const liftPlaza: AreaDef = {
       const a = TOWN_SPOTS.market - 14 + i * 14;
       marketStall(kit, polar(a, 22), faceCenter(a));
     }
-    for (const [angle, radius] of [[100, 23], [125, 23.5], [190, 23], [258, 23.5]] as const) {
+
+    // Town Works: what's been built shows up in the plaza.
+    const kitchenYaw = faceCenter(TOWN_SPOTS.kitchen);
+    const kitchenFront = polar(TOWN_SPOTS.kitchen, FRONT_R);
+    let ovenLight: THREE.PointLight | null = null;
+    if (game.hasFlag('kitchen_expanded')) {
+      // Pell's second hearth: a brick bread oven under its own little roof.
+      kit.box({ at: offset(kitchenFront, kitchenYaw, 5.1, 0.7, -0.6), size: [1.8, 1.4, 2], mat: 'brick', rotY: kitchenYaw, bevel: 0.05 });
+      kit.box({ at: offset(kitchenFront, kitchenYaw, 5.1, 0.55, 0.42), size: [0.7, 0.5, 0.06], mat: 'lamp', rotY: kitchenYaw, collide: false, shadow: false });
+      kit.box({ at: offset(kitchenFront, kitchenYaw, 5.4, 2.4, -1.1), size: [0.5, 2, 0.5], mat: 'brick', rotY: kitchenYaw, collide: false });
+      kit.box({ at: offset(kitchenFront, kitchenYaw, 5.1, 1.6, -0.6), size: [2.2, 0.1, 2.4], mat: 'roof', rotY: kitchenYaw, rotX: 0.15, collide: false });
+      ovenLight = kit.pointLight({ at: offset(kitchenFront, kitchenYaw, 5.1, 0.6, 1.2), color: 0xff8a3a, intensity: 6, distance: 6, bulb: false });
+    }
+    if (game.hasFlag('forge_bellows')) {
+      // Oren's great bellows, worked by a counterweighted lever, and a taller stack.
+      kit.box({ at: offset(forgeFront, forgeYaw, -3.4, 0.55, 1.2), size: [1.2, 0.5, 1.9], mat: 'wood_dark', rotY: forgeYaw, rotX: -0.12, bevel: 0.04 });
+      kit.box({ at: offset(forgeFront, forgeYaw, -3.4, 0.95, 1.1), size: [1.0, 0.3, 1.6], mat: 'canvas', rotY: forgeYaw, rotX: -0.25, collide: false });
+      kit.box({ at: offset(forgeFront, forgeYaw, -3.4, 1.9, 0.4), size: [0.12, 2.2, 0.12], mat: 'wood_dark', rotY: forgeYaw, collide: false });
+      kit.box({ at: offset(forgeFront, forgeYaw, -3.4, 2.9, 1.0), size: [0.12, 0.12, 2.0], mat: 'wood_dark', rotY: forgeYaw, rotX: 0.2, collide: false });
+      kit.box({ at: offset(forgeFront, forgeYaw, 2.4, 13, -4), size: [1.1, 3, 1.1], mat: 'brick', rotY: forgeYaw, collide: false });
+    }
+    if (game.hasFlag('hoist_built')) {
+      // The freight hoist's derrick at the shaft lip, with its line running down to the yard.
+      const foot = polar(326, 8.2);
+      const tip = polar(330, 5.6, 4.6);
+      for (const side of [-0.7, 0.7]) pipe(kit, offset(foot, faceCenter(326), side, 0, 0), tip, 0.09, 'wood_dark');
+      pipe(kit, polar(326, 9.6), tip, 0.06, 'wood_dark');
+      pipe(kit, tip, [tip[0], -12, tip[2]], 0.02, 'canvas');
+      kit.box({ at: [tip[0], 4.4, tip[2]], size: [0.4, 0.4, 0.2], mat: 'metal', rotY: faceCenter(330), collide: false });
+      kit.box({ at: [tip[0], 2.2, tip[2]], size: [0.7, 0.6, 0.7], mat: 'wood', rotY: faceCenter(330), collide: false, bevel: 0.02 });
+    }
+
+    // The old lamplighter's house, yours once you've saved up.
+    const home = buildHome(game, kit, interactables, polar(TOWN_SPOTS.home, FRONT_R), faceCenter(TOWN_SPOTS.home));
+
+    // The Town Works board, beside the market.
+    noticeboard(kit, polar(TOWN_SPOTS.works, 12.5), faceCenter(TOWN_SPOTS.works));
+    interactables.push({
+      id: 'plaza-works',
+      position: new THREE.Vector3(...polar(TOWN_SPOTS.works, 12.5, 1.4)),
+      radius: 1,
+      mode: 'press',
+      enabled: () => true,
+      label: () => 'Read the Town Works board',
+      press: () => game.panels.show(() => worksBoard(game)),
+    });
+    for (const [angle, radius] of [[100, 23], [125, 23.5], [190, 23], [258, 23.5], [96, 22.3], [128, 24.4], [196, 24.2], [262, 22.6], [57, 23.8], [33, 24]] as const) {
       if (rng() > 0.5) crate(kit, polar(angle, radius), 0.8, rng() * 3);
       else barrel(kit, polar(angle, radius));
+    }
+    cart(kit, polar(150, 23.2), faceCenter(150) + 1.3, 'ore_copper');
+    cart(kit, polar(18, 22.5), faceCenter(18) - 1.2);
+    for (const a of [90, 160, 205, 262]) plantedTree(kit, polar(a, 17.5), rng);
+    // Lamps strung from the shaft's posts out to the inn and the kitchen, where people gather.
+    for (const [post, to] of [[145, 172], [215, 188], [215, 238], [250, 252]] as const) {
+      hangingLine(kit, polar(post, 11.5, 2.85), polar(to, FRONT_R - 0.2, 4.6), 0.55, 9, 'bulb', rng);
     }
 
     // Lamps around the shaft.
@@ -160,10 +226,11 @@ export const liftPlaza: AreaDef = {
       }
     }
 
-    // The main lift and its headframe.
+    // The main lift and its headframe, with the winding house its cables run back to.
     const cage: [number, number, number] = [0, 0, -(SHAFT_R - 1.75)];
     liftCage(kit, cage, Math.PI, 14);
     const wheel = headframe(kit, cage, 0, 1.75);
+    townhouse(kit, { at: [0, 0, -16.8], yaw: 0, width: 6.4, depth: 4.5, floors: 1, wall: 'stone_wall', roof: 'gable', lit: evening ? 1 : 0.4, rng, collide: true, chimney: true });
     kit.pointLight({ at: [0, 3.3, cage[2]], color: 0xffc58a, intensity: 8, distance: 10, shadow: true });
 
     // Light and sky.
@@ -180,8 +247,12 @@ export const liftPlaza: AreaDef = {
     sun.shadow.normalBias = 0.04;
     kit.add(sun);
     kit.add(sun.target);
-    kit.pointLight({ at: [0, -14, 0], color: 0x5fa8ff, intensity: 1600, distance: 45, bulb: false });
+    // The shaft's cold glow. Only a touch of it lights the mist, or the shaft would be a pillar of light.
+    kit.pointLight({ at: [0, -14, 0], color: 0x5fa8ff, intensity: 1600, distance: 45, bulb: false }).userData.air = 0.03;
 
+    kit.add(skyDome(evening
+      ? { zenith: new THREE.Color(0.0035, 0.006, 0.018), horizon: new THREE.Color(0.018, 0.022, 0.04), glow: new THREE.Color(0.05, 0.028, 0.012), glowDir: new THREE.Vector3(0, 0.1, 1) }
+      : { zenith: new THREE.Color(0.12, 0.26, 0.62), horizon: new THREE.Color(0.55, 0.62, 0.72), glow: new THREE.Color(0.9, 0.6, 0.32), glowDir: sun.position }));
     if (evening) {
       const stars = new Float32Array(900 * 3);
       for (let i = 0; i < 900; i++) {
@@ -202,8 +273,11 @@ export const liftPlaza: AreaDef = {
       range: 3.5,
       mode: 'press',
       enabled: () => true,
-      label: () => 'Ride the lift down to the Entry Yard',
-      press: () => game.travel('entry-yard', 'lift', 'lift'),
+      label: () => (game.hasFlag('sluicekeeper_defeated') ? 'Ride the lift down' : 'Ride the lift down to the Entry Yard'),
+      press: () => {
+        if (game.hasFlag('sluicekeeper_defeated')) game.panels.show(() => liftPanel(game));
+        else void game.travel('entry-yard', 'lift', 'lift');
+      },
     });
     interactables.push({
       id: 'plaza-noticeboard',
@@ -233,7 +307,9 @@ export const liftPlaza: AreaDef = {
       spawns,
       interactables,
       frame: (dt, time) => {
-        forgeLight.intensity = 12 + Math.sin(time * 11) * 2 + Math.sin(time * 23) * 1.5;
+        forgeLight.intensity = (game.hasFlag('forge_bellows') ? 16 : 12) + Math.sin(time * 11) * 2 + Math.sin(time * 23) * 1.5;
+        if (ovenLight) ovenLight.intensity = 5 + Math.sin(time * 7) * 0.8 + Math.sin(time * 17) * 0.6;
+        home.frame(time);
         wheel.rotation.x += dt * 0.05;
       },
     };

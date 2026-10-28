@@ -1,20 +1,16 @@
 import * as THREE from 'three';
-import { createRng, hashString, randInt, randRange, type Rng } from '../core/rng';
+import { createRng, hashString, randInt, randRange } from '../core/rng';
 import { SKILL_NAMES } from '../data/ids';
-import { NODES, PICKAXE_TIER, type NodeDef, type NodeType } from '../data/nodes';
+import { NODES, PICKAXE_TIER, type NodeDef, type NodeSpawn } from '../data/nodes';
 import type { Game } from '../game';
 import type { Interactable } from '../world/area';
-import type { LevelKit, V3 } from '../world/level-kit';
-import type { MaterialLibrary } from '../world/materials';
+import type { LevelKit } from '../world/level-kit';
+import { isSeam, seam } from '../world/seams';
+import { createGlowTexture } from '../render/textures';
 import { swingInterval, swingSuccessChance } from './gathering-math';
+import { yieldBonus, yieldScale } from '../story/conditions';
 
-export interface NodeSpawn {
-  /** Stable id: saved with depletion state. */
-  id: string;
-  type: NodeType;
-  at: V3;
-  scale?: number;
-}
+export type { NodeSpawn };
 
 interface NodeInstance {
   id: string;
@@ -22,27 +18,21 @@ interface NodeInstance {
   position: THREE.Vector3;
   chunks: THREE.Object3D[];
   remaining: number;
+  /** Running rich today (a daily condition). */
+  rich: boolean;
 }
 
 const STOP_DISTANCE = 3.6;
+/** Chance a mining swing turns up a glint, and how long it shines. Rich seams glint more. */
+const GLINT_CHANCE = 0.2;
+const RICH_GLINT_CHANCE = 0.38;
+const GLINT_TIME = 1.7;
 
-function boulder(rng: Rng, materials: MaterialLibrary, scale: number): THREE.Mesh {
-  const geo = new THREE.IcosahedronGeometry(1, 2);
-  const pos = geo.getAttribute('position');
-  const seedA = rng() * 10;
-  const seedB = rng() * 10;
-  for (let i = 0; i < pos.count; i++) {
-    const v = new THREE.Vector3().fromBufferAttribute(pos, i);
-    const n = 1 + Math.sin(v.x * 3.1 + seedA) * 0.08 + Math.sin(v.y * 4.3 + seedB) * 0.07 + Math.sin(v.z * 5.7 + seedA) * 0.05;
-    v.multiplyScalar(n);
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, materials.get('rock'));
-  mesh.scale.set(scale * randRange(rng, 0.9, 1.2), scale * randRange(rng, 0.6, 0.8), scale * randRange(rng, 0.85, 1.1));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+/** A glint on a chunk of ore: strike it (E or click) for a bonus. Never needed, never a minigame. */
+interface Glint {
+  node: NodeInstance;
+  chunk: THREE.Object3D;
+  time: number;
 }
 
 /** Resource nodes and the swing-by-swing gathering loop. */
@@ -50,17 +40,30 @@ export class Gathering {
   private active: NodeInstance | null = null;
   private timer = 0;
   private nodes: NodeInstance[] = [];
+  private glint: Glint | null = null;
+  private readonly sparkle: THREE.Sprite;
 
   constructor(private readonly game: Game) {
+    this.sparkle = new THREE.Sprite(new THREE.SpriteMaterial({ map: createGlowTexture(), color: new THREE.Color(2.2, 1.9, 1.3), blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    this.sparkle.visible = false;
+    this.sparkle.renderOrder = 6;
+    game.scene.add(this.sparkle);
     game.onFixed((dt) => this.update(dt));
+    game.onFrame(() => this.frame());
     game.events.on('areaEntered', () => {
       this.active = null;
+      this.glint = null;
     });
     game.events.on('playerDamaged', () => this.stop());
   }
 
   get busy(): boolean {
     return this.active !== null;
+  }
+
+  /** A prompt that overrides whatever you're looking at while a glint shines. */
+  get cue(): string | null {
+    return this.glint ? 'Strike the glint!' : null;
   }
 
   get activeSkill(): NodeDef['skill'] | null {
@@ -83,21 +86,10 @@ export class Gathering {
       group.rotation.y = rng() * Math.PI * 2;
       const chunks: THREE.Object3D[] = [];
       const scale = s.scale ?? 1;
-      if (def.skill === 'mining') {
-        const rock = boulder(rng, kit.materials, 0.75 * scale);
-        rock.position.y = 0.25 * scale;
-        group.add(rock);
-        const count = 7;
-        for (let i = 0; i < count; i++) {
-          const chunk = new THREE.Mesh(new THREE.OctahedronGeometry(randRange(rng, 0.09, 0.19) * scale, 0), kit.materials.get(def.mat));
-          const a = (i / count) * Math.PI * 2 + rng() * 0.5;
-          const up = randRange(rng, 0.15, 0.9);
-          chunk.position.set(Math.cos(a) * 0.62 * scale * (1 - up * 0.4), 0.25 * scale + up * 0.5 * scale, Math.sin(a) * 0.55 * scale * (1 - up * 0.4));
-          chunk.rotation.set(rng() * 3, rng() * 3, rng() * 3);
-          chunk.castShadow = true;
-          group.add(chunk);
-          chunks.push(chunk);
-        }
+      if (isSeam(s.type)) {
+        const built = seam(s.type, rng, kit.materials, def.mat, scale);
+        group.add(built.group);
+        chunks.push(...built.chunks);
       } else {
         const count = randInt(rng, 6, 9);
         for (let i = 0; i < count; i++) {
@@ -123,9 +115,14 @@ export class Gathering {
         position: new THREE.Vector3(s.at[0], s.at[1] + 0.45 * scale, s.at[2]),
         chunks,
         remaining: 0,
+        rich: false,
       };
       if (this.isAvailable(node)) {
-        node.remaining = randInt(createRng(hashString(s.id) + this.game.state.day * 31), def.yields[0], def.yields[1]);
+        // Today's conditions: a rich seam yields double, a bloom adds to every patch.
+        const conditions = this.game.conditions;
+        const base = randInt(createRng(hashString(s.id) + this.game.state.day * 31), def.yields[0], def.yields[1]);
+        node.remaining = base * yieldScale(conditions, s.id) + yieldBonus(conditions, s.type);
+        node.rich = yieldScale(conditions, s.id) > 1;
       }
       this.refresh(node);
       this.nodes.push(node);
@@ -145,6 +142,7 @@ export class Gathering {
   stop(message?: string): void {
     if (!this.active) return;
     this.active = null;
+    this.glint = null;
     this.game.viewmodel.swing(0, 'mine');
     if (message) this.game.hud.toast(message);
   }
@@ -166,12 +164,14 @@ export class Gathering {
   private label(node: NodeInstance): string {
     if (this.active === node) return `Stop (${node.def.name.toLowerCase()})`;
     const blocked = this.blocker(node);
-    return blocked ? `${node.def.name} (${blocked})` : `${node.def.verb} ${node.def.name.toLowerCase()}`;
+    const name = `${node.rich && node.remaining > 0 ? 'Rich ' : ''}${node.def.name}`;
+    return blocked ? `${name} (${blocked})` : `${node.def.verb} ${name.toLowerCase()}`;
   }
 
   private toggle(node: NodeInstance): void {
     if (this.active === node) {
-      this.stop();
+      if (this.glint) this.strikeGlint();
+      else this.stop();
       return;
     }
     const blocked = this.blocker(node);
@@ -198,12 +198,46 @@ export class Gathering {
     this.game.viewmodel.swing(this.interval(node), mining ? 'mine' : 'grab');
   }
 
+  /** Now and then a swing knocks loose a face of ore that catches the light. */
+  private maybeGlint(node: NodeInstance): void {
+    if (this.glint || node.def.skill !== 'mining' || node.remaining <= 0) return;
+    if (this.game.rng() >= (node.rich ? RICH_GLINT_CHANCE : GLINT_CHANCE)) return;
+    const visible = node.chunks.filter((c) => c.visible);
+    const chunk = visible[Math.floor(this.game.rng() * visible.length)];
+    if (!chunk) return;
+    this.glint = { node, chunk, time: GLINT_TIME };
+    this.game.events.emit('sound', { name: 'glint', position: node.position.clone() });
+  }
+
+  /** The bonus for striking a glint: an extra piece, half again the XP, and a shower of sparks. */
+  private strikeGlint(): void {
+    const glint = this.glint;
+    if (!glint) return;
+    this.glint = null;
+    const def = glint.node.def;
+    const at = glint.chunk.getWorldPosition(new THREE.Vector3());
+    this.game.viewmodel.swing(0.35, 'mine');
+    this.game.player.addShake(0.1);
+    this.game.effects.burst(at, { count: 22, color: 0xffe2a0, speed: 3.5, size: 0.045, life: 0.6, emissive: true });
+    if (this.game.progress.give(def.item, 1, true) > 0) {
+      this.game.progress.addXp(def.skill, Math.round(def.xp * 0.5 * 10) / 10);
+      this.game.events.emit('nodeYield', { position: at, item: def.item });
+      this.game.events.emit('glintStruck', { item: def.item });
+    }
+  }
+
   private update(dt: number): void {
     const node = this.active;
     if (!node) return;
     if (this.game.panelOpen || this.game.player.position.distanceTo(node.position) > STOP_DISTANCE) {
       this.stop();
       return;
+    }
+    if (this.glint) {
+      this.glint.time -= dt;
+      const input = this.game.input;
+      if (input.wasPressed('attack') || input.wasPressed('interact')) this.strikeGlint();
+      else if (this.glint.time <= 0) this.glint = null;
     }
     const tier = this.toolTier(node.def);
     this.timer += dt;
@@ -234,7 +268,22 @@ export class Gathering {
         return;
       }
     }
+    this.maybeGlint(node);
     this.beginSwing(node);
+  }
+
+  /** The glint's sparkle, pulsing on its chunk of ore. */
+  private frame(): void {
+    const glint = this.glint;
+    this.sparkle.visible = glint !== null;
+    if (!glint) return;
+    glint.chunk.getWorldPosition(this.sparkle.position);
+    const toCamera = this.game.camera.position.clone().sub(this.sparkle.position).normalize();
+    this.sparkle.position.addScaledVector(toCamera, 0.12);
+    const t = this.game.time;
+    const fade = Math.min(1, glint.time / 0.3);
+    this.sparkle.scale.setScalar((0.32 + Math.sin(t * 14) * 0.08) * fade);
+    this.sparkle.material.rotation = t * 1.5;
   }
 
   /** Shows one chunk per remaining yield, so you can read a node at a glance. */

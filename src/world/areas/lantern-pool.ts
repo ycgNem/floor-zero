@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createRng, randRange, type Rng } from '../../core/rng';
 import type { Collider } from '../../physics/physics';
+import { NODE_PLACEMENTS } from '../../data/placements';
 import type { AreaDef, Interactable, Spawn } from '../area';
 import type { LevelKit, V3 } from '../level-kit';
 import type { MaterialKey } from '../materials';
@@ -41,6 +42,9 @@ export const lanternPool: AreaDef = {
   floor: 3,
   fog: { color: 0x0f1f24, density: 0.026 },
   dust: { color: 0xa8e6ff, opacity: 0.6 },
+  // Cold mist lying on the water.
+  air: { scatter: 0.005, mist: { color: 0x0d282c, density: 0.05, floor: -0.3, falloff: 1.1 } },
+  grade: 'pool',
   build({ game, kit }) {
     const rng = createRng(4411);
     const interactables: Interactable[] = [];
@@ -198,7 +202,29 @@ export const lanternPool: AreaDef = {
     crate(kit, [10.4, 0, -1.9], 0.7, 0.4);
     barrel(kit, [5.6, 0, -1.8]);
     wallLantern(kit, [10.85, 2.3, -3.5], -Math.PI / 2, 5);
-    game.town.spawn(kit, 'tavi', new THREE.Vector3(9.4, 0, -3.6), -0.4, interactables);
+    if (game.hasFlag('tavi_missing') && !game.hasFlag('tavi_rescued')) {
+      // Tavi's gone after the Irregular's trail. They left a note on the table.
+      kit.box({ at: [9.55, 0.81, -4.8], size: [0.24, 0.01, 0.3], mat: 'canvas', rotY: 0.3, collide: false, shadow: false });
+      interactables.push({
+        id: 'lp-tavi-note',
+        position: new THREE.Vector3(9.55, 0.85, -4.8),
+        radius: 0.5,
+        mode: 'press',
+        enabled: () => true,
+        label: () => 'Read the note on the table',
+        press: () => {
+          game.state.counters['tavi-note-read'] = 1;
+          game.panels.show(() => ({
+            name: 'A note, in pencil',
+            role: 'Tavi',
+            text: 'Gone after the horned thing. Its tracks go down past the Cut and into that black tunnel on the west side. Nobody’s been in there with a light that works.\n\nBack by supper. Don’t tell Mara.\n\nT.',
+            options: [{ label: 'Put it down', onClick: () => game.panels.close() }],
+          }));
+        },
+      });
+    } else {
+      game.town.spawn(kit, 'tavi', new THREE.Vector3(9.4, 0, -3.6), -0.4, interactables);
+    }
 
     // The tunnel back up to the galleries.
     kit.room({ at: [-12, 0, -4], size: [3, 3.5, 6], wall: 'rock', floor: 'rock', openings: [{ side: 's', width: 3, height: 3.5 }] });
@@ -292,15 +318,7 @@ export const lanternPool: AreaDef = {
     rubble(kit, rng, [-17.5, 0, 2.5], 1.2, 7);
     stalactites(kit, rng, [0, 14, 22], 17, 44);
 
-    game.gathering.spawn(kit, [
-      { id: 'lp-glowcap-1', type: 'glowcap_patch', at: [-16.5, 0, 16.5] },
-      { id: 'lp-glowcap-2', type: 'glowcap_patch', at: [-17.2, 0, 33] },
-      { id: 'lp-glowcap-3', type: 'glowcap_patch', at: [17, 0, 13.5] },
-      { id: 'lp-lampmoss-1', type: 'lampmoss_patch', at: [-15.5, 0, 41.6] },
-      { id: 'lp-lampmoss-2', type: 'lampmoss_patch', at: [17.4, 0, 36.5] },
-      { id: 'lp-iron-1', type: 'iron_seam', at: [-9.5, 0, 41.2] },
-      { id: 'lp-iron-2', type: 'iron_seam', at: [10.4, 0, 41.2] },
-    ], interactables);
+    game.gathering.spawn(kit, NODE_PLACEMENTS['lantern-pool'], interactables);
 
     game.fishing.spawn(kit, [
       { id: 'lp-shallows-1', type: 'shallows', at: [-6, LAKE.water, 15.4] },

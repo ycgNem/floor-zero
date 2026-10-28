@@ -2,7 +2,7 @@ import type { BuffId } from './buffs';
 
 export type ItemKind =
   | 'ore' | 'fish' | 'food' | 'herb' | 'core' | 'material' | 'bait'
-  | 'tool' | 'weapon' | 'armour' | 'quest';
+  | 'tool' | 'weapon' | 'armour' | 'charm' | 'quest';
 
 export interface ItemDef {
   name: string;
@@ -16,6 +16,8 @@ export interface ItemDef {
   /** A meal buff granted when eaten. */
   buff?: { id: BuffId; minutes: number };
   description?: string;
+  /** For counting more than one, when it isn't a mass noun like ore: "glowcaps". */
+  plural?: string;
 }
 
 export const ITEMS = {
@@ -23,8 +25,8 @@ export const ITEMS = {
   iron_ore: { name: 'Iron ore', kind: 'ore', stack: 1, value: 9 },
   cobalt_ore: { name: 'Cobalt ore', kind: 'ore', stack: 1, value: 22, description: 'The blue ore. Heavy, and faintly warm.' },
 
-  cave_minnow: { name: 'Cave minnow', kind: 'fish', stack: 1, value: 5 },
-  lantern_eel: { name: 'Lantern eel', kind: 'fish', stack: 1, value: 12 },
+  cave_minnow: { name: 'Cave minnow', kind: 'fish', stack: 1, value: 5, plural: 'cave minnows' },
+  lantern_eel: { name: 'Lantern eel', kind: 'fish', stack: 1, value: 12, plural: 'lantern eels' },
   white_cavefish: { name: 'White cavefish', kind: 'fish', stack: 1, value: 26 },
 
   cooked_minnow: { name: 'Cooked minnow', kind: 'food', stack: 1, value: 8, heal: 14 },
@@ -32,17 +34,19 @@ export const ITEMS = {
   cavefish_stew: { name: 'Cavefish stew', kind: 'food', stack: 1, value: 40, heal: 45, buff: { id: 'hearty', minutes: 10 }, description: 'Hearty: +20 max health for 10 minutes.' },
   glowcap_broth: { name: 'Glowcap broth', kind: 'food', stack: 1, value: 14, heal: 20, buff: { id: 'keen', minutes: 5 }, description: 'Keen: mine and gather faster for 5 minutes.' },
   trail_bread: { name: 'Trail bread', kind: 'food', stack: 1, value: 4, heal: 10, description: 'Sold at the market. Dependable, if dull.' },
+  eel_skewers: { name: 'Eel skewers', kind: 'food', stack: 1, value: 24, heal: 32, buff: { id: 'keen', minutes: 8 }, description: 'Keen: mine and gather faster for 8 minutes.' },
+  delvers_pie: { name: 'Delver’s pie', kind: 'food', stack: 1, value: 34, heal: 48, buff: { id: 'steady', minutes: 8 }, description: 'Steady: take 15% less damage for 8 minutes.' },
 
-  glowcap: { name: 'Glowcap', kind: 'herb', stack: 10, value: 3 },
+  glowcap: { name: 'Glowcap', kind: 'herb', stack: 10, value: 3, plural: 'glowcaps' },
   lampmoss: { name: 'Lampmoss', kind: 'herb', stack: 10, value: 6 },
 
-  dim_core: { name: 'Dim core', kind: 'core', stack: 50, value: 6 },
-  bright_core: { name: 'Bright core', kind: 'core', stack: 50, value: 18 },
-  radiant_core: { name: 'Radiant core', kind: 'core', stack: 10, value: 120 },
+  dim_core: { name: 'Dim core', kind: 'core', stack: 50, value: 6, plural: 'dim cores' },
+  bright_core: { name: 'Bright core', kind: 'core', stack: 50, value: 18, plural: 'bright cores' },
+  radiant_core: { name: 'Radiant core', kind: 'core', stack: 10, value: 120, plural: 'radiant cores' },
 
   rope: { name: 'Rope', kind: 'material', stack: 5, value: 6 },
   planks: { name: 'Planks', kind: 'material', stack: 10, value: 3 },
-  salvaged_spring: { name: 'Salvaged spring', kind: 'material', stack: 10, value: 10 },
+  salvaged_spring: { name: 'Salvaged spring', kind: 'material', stack: 10, value: 10, plural: 'salvaged springs' },
   bait_grubs: { name: 'Bait grubs', kind: 'bait', stack: 50, value: 1 },
 
   storeroom_schematic: { name: 'Storeroom schematic', kind: 'quest', stack: 1, value: 0, description: 'Old drawings of the Old Works. Iona will want these.' },
@@ -64,12 +68,21 @@ export const ITEMS = {
 
   leather_vest: { name: 'Leather vest', kind: 'armour', stack: 1, value: 0 },
   iron_mail: { name: 'Iron mail', kind: 'armour', stack: 1, value: 0 },
+  delvers_pack: { name: 'Delver’s pack', kind: 'tool', stack: 1, value: 0, description: 'Six more slots for the haul.' },
+
+  lucky_knot: { name: 'Tavi’s lucky knot', kind: 'charm', stack: 1, value: 0, description: 'A delver’s knot in faded red cord. Your feet find an extra step: one more dash charge.' },
 } as const satisfies Record<string, ItemDef>;
 
 export type ItemId = keyof typeof ITEMS;
 
 export function itemDef(id: ItemId): ItemDef {
   return ITEMS[id];
+}
+
+/** "6 glowcaps", "1 glowcap", "8 iron ore". */
+export function countOf(item: ItemId, count: number): string {
+  const def: ItemDef = ITEMS[item];
+  return `${count} ${count !== 1 && def.plural ? def.plural : def.name.toLowerCase()}`;
 }
 
 export function isItemId(value: unknown): value is ItemId {

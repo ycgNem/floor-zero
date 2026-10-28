@@ -15,6 +15,9 @@ export const SKILL_NAMES: Record<SkillId, string> = {
   resonance: 'Resonance',
 };
 
+export const NPC_IDS = ['mara', 'iona', 'oren', 'pell', 'hollis', 'bram', 'tavi'] as const;
+export type NpcId = (typeof NPC_IDS)[number];
+
 /** Permanent world changes and story progress. Stored in saves by name. */
 export const FLAGS = [
   'test_lever',
@@ -26,6 +29,9 @@ export const FLAGS = [
   'pump_power_restored', 'pump_intake_cleared', 'pump_plate_found', 'pump_sequence_known',
   'pick_head_found', 'cobalt_pick_forged',
   'sluicekeeper_defeated', 'floor_markers_lit', 'rank_two', 'deep_lift_ceremony',
+  // M6: the town track, Tavi's rescue, and the Sluicekeeper put back to work.
+  'house_bought', 'hoist_built', 'kitchen_expanded', 'forge_bellows',
+  'tavi_missing', 'tavi_rescued', 'sluicekeeper_repaired',
 ] as const;
 export type FlagId = (typeof FLAGS)[number];
 

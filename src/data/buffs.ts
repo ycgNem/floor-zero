@@ -7,6 +7,8 @@ export interface BuffDef {
   dashRecharge?: number;
   /** Multiplies the time between mining and gathering swings. */
   gatherSpeed?: number;
+  /** Multiplies damage you take. */
+  damageTaken?: number;
 }
 
 /** Meal buffs from Pell's kitchen. One of each at a time; eating again refreshes the timer. */
@@ -14,6 +16,7 @@ export const BUFFS = {
   hearty: { name: 'Hearty', description: '+20 max health', maxHealth: 20 },
   surefoot: { name: 'Sure-footed', description: 'Dashes recharge 40% faster', dashRecharge: 0.6 },
   keen: { name: 'Keen', description: 'Mine and gather 15% faster', gatherSpeed: 0.85 },
+  steady: { name: 'Steady', description: 'Take 15% less damage', damageTaken: 0.85 },
 } as const satisfies Record<string, BuffDef>;
 
 export type BuffId = keyof typeof BUFFS;

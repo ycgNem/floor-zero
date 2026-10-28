@@ -20,6 +20,8 @@ export interface GameEvents {
   hit: { position: THREE.Vector3; amount: number; weakPoint: boolean };
   nodeStruck: { position: THREE.Vector3; skill: SkillId };
   nodeYield: { position: THREE.Vector3; item: ItemId };
+  /** You struck a glint while mining. */
+  glintStruck: { item: ItemId };
   dialogue: { npc: string };
   sold: { total: number };
   ceremony: Record<string, never>;
@@ -28,6 +30,8 @@ export interface GameEvents {
   playerAttack: { weapon: string };
   deflect: { position: THREE.Vector3 };
   areaUnloading: Record<string, never>;
+  /** Your pack went up by freight: a hoist, or the Sluicekeeper's cradle. */
+  freight: { count: number };
   /** A one-off sound with no other event behind it. */
   sound: { name: SoundName; position?: THREE.Vector3 };
 }

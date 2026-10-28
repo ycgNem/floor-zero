@@ -7,3 +7,6 @@ Thumbs.db
 # Blender autosaves and backups
 *.blend1
 *.blend2
+
+# Python bytecode from the Blender build scripts
+__pycache__/

@@ -91,7 +91,8 @@ let coneMaterial: THREE.ShaderMaterial | null = null;
 /** Soft additive glow, brightest at the top of the mesh and fading at silhouettes and up close. */
 function lightConeMaterial(): THREE.ShaderMaterial {
   coneMaterial ??= new THREE.ShaderMaterial({
-    uniforms: { strength: { value: 0.07 } },
+    // Faint: the air pass gives every lamp its halo; this only hints at light falling through dust.
+    uniforms: { strength: { value: 0.035 } },
     vertexShader: /* glsl */ `
       attribute vec3 tint;
       varying float vH;

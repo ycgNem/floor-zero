@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { createNoise3, fbm3, type Noise3 } from '../core/noise';
 import type { Collider, Physics } from '../physics/physics';
-import { applyWorldUVs, type MaterialKey, type MaterialLibrary } from './materials';
+import { applyGrainUVs, applyWorldUVs, type MaterialKey, type MaterialLibrary } from './materials';
 
 export type V3 = readonly [number, number, number];
 export type Side = 'n' | 's' | 'e' | 'w';
@@ -44,6 +45,39 @@ export interface RoomOptions {
 const tmpEuler = new THREE.Euler();
 const tmpQuat = new THREE.Quaternion();
 const tmpMatrix = new THREE.Matrix4();
+const tmpBox = new THREE.Box3();
+const tmpSize = new THREE.Vector3();
+
+interface Roughness {
+  /** Grid size faces are split into, in metres. */
+  cell: number;
+  /** How far walls bulge in and out. */
+  relief: number;
+  /** How far ceilings sag. */
+  sag: number;
+}
+
+/**
+ * Natural rock isn't flat (doc 12): its faces are split into a grid and pushed through one shared
+ * world-space noise field, so neighbouring pieces deform together and stay sealed. Walls only move
+ * sideways and ceilings only sag, which keeps floors where the colliders are and never opens a slit
+ * where a wall meets a ceiling. Builders' stone stays precise.
+ */
+const ROUGH: Partial<Record<MaterialKey, Roughness>> = {
+  rock: { cell: 0.4, relief: 0.28, sag: 0.35 },
+};
+
+/** Sideways relief and ceiling sag at a world point: layered like strata, with sharper creases. */
+function relief(noise: Noise3, x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  const warp = noise(x * 0.09, y * 0.16, z * 0.09) * 1.6;
+  const s = 0.36;
+  const sy = s * 1.9;
+  const crease = (ox: number): number => 0.5 - Math.abs(noise(x * 1.25 + ox, y * 2.2, z * 1.25 - ox));
+  out.x = fbm3(noise, x * s + warp, y * sy, z * s, 3) * 0.8 + crease(17.3) * 0.35;
+  out.z = fbm3(noise, x * s - 41.2, y * sy + warp, z * s + 9.7, 3) * 0.8 + crease(-23.9) * 0.35;
+  out.y = 0.55 + 0.45 * fbm3(noise, x * 0.5 + 3.1, y * 0.5, z * 0.5 - 7.7, 3);
+  return out;
+}
 
 /**
  * Builds static area geometry. Everything added is batched per material and merged
@@ -53,6 +87,7 @@ export class LevelKit {
   readonly root = new THREE.Group();
   readonly colliders: Collider[] = [];
   private readonly batches = new Map<MaterialKey, { cast: THREE.BufferGeometry[]; noCast: THREE.BufferGeometry[] }>();
+  private readonly noise = createNoise3(4242);
 
   constructor(
     readonly physics: Physics,
@@ -68,24 +103,66 @@ export class LevelKit {
 
   /** Adds any geometry (in local space) at a transform, merged with its material batch. */
   geometry(geometry: THREE.BufferGeometry, mat: MaterialKey, at: V3, rotation?: THREE.Euler, shadow = true): THREE.BufferGeometry {
-    const geo = geometry.index ? geometry.toNonIndexed() : geometry;
-    if (geo !== geometry) geometry.dispose();
+    // Timber takes its UVs in its own frame first, so the grain follows each piece however it's turned.
+    const grain = this.materials.grained(mat);
+    if (grain) applyGrainUVs(geometry, this.materials.tile(mat));
     tmpQuat.setFromEuler(rotation ?? tmpEuler.set(0, 0, 0));
     tmpMatrix.compose(new THREE.Vector3(at[0], at[1], at[2]), tmpQuat, new THREE.Vector3(1, 1, 1));
-    geo.applyMatrix4(tmpMatrix);
-    for (const name of Object.keys(geo.attributes)) {
-      if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
+    geometry.applyMatrix4(tmpMatrix);
+    for (const name of Object.keys(geometry.attributes)) {
+      if (name !== 'position' && name !== 'normal' && !(grain && name === 'uv')) geometry.deleteAttribute(name);
     }
-    applyWorldUVs(geo, this.materials.tile(mat));
+    // UVs come from the undisturbed shape, so the texture doesn't swim over the bumps.
+    if (!grain) applyWorldUVs(geometry, this.materials.tile(mat));
+    const rough = ROUGH[mat];
+    if (rough) this.roughen(geometry, rough);
+    const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+    if (geo !== geometry) geometry.dispose();
     const batch = this.batches.get(mat) ?? { cast: [], noCast: [] };
     this.batches.set(mat, batch);
     (shadow ? batch.cast : batch.noCast).push(geo);
     return geo;
   }
 
+  /**
+   * Pushes rock out of true: see ROUGH. Small pieces get proportionally less, so a pebble stays a
+   * pebble. Hollows are shaded darker and bulges lighter through vertex colour, a cheap occlusion.
+   */
+  private roughen(geometry: THREE.BufferGeometry, rough: Roughness): void {
+    geometry.computeBoundingBox();
+    const dims = (geometry.boundingBox ?? tmpBox).getSize(tmpSize).toArray().sort((a, b) => a - b);
+    const scale = Math.min(1, (dims[1] ?? 1) / 1.2);
+    const pos = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const colors = new Float32Array(pos.count * 3);
+    const d = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      relief(this.noise, x, y, z, d);
+      const nx = normal.getX(i);
+      const nz = normal.getZ(i);
+      const down = normal.getY(i) < -0.5;
+      const sag = down ? d.y * rough.sag * scale : 0;
+      pos.setXYZ(i, x + d.x * rough.relief * scale, y - sag, z + d.z * rough.relief * scale);
+      // How far this point came toward the viewer, from -1 (deep hollow) to 1 (proud bulge).
+      const out = down ? d.y * 2 - 1 : d.x * nx + d.z * nz;
+      const shade = 0.68 + 0.4 * THREE.MathUtils.smoothstep(out, -0.7, 0.7);
+      colors[i * 3] = shade;
+      colors[i * 3 + 1] = shade;
+      colors[i * 3 + 2] = shade;
+    }
+    pos.needsUpdate = true;
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+  }
+
   box(o: BoxOptions): void {
     const [w, h, d] = o.size;
-    const geo = o.bevel ? new RoundedBoxGeometry(w, h, d, 2, o.bevel) : new THREE.BoxGeometry(w, h, d);
+    const rough = ROUGH[o.mat];
+    const split = (n: number): number => (rough ? Math.min(64, Math.max(1, Math.ceil(n / rough.cell))) : 1);
+    const geo = o.bevel && !rough ? new RoundedBoxGeometry(w, h, d, 2, o.bevel) : new THREE.BoxGeometry(w, h, d, split(w), split(h), split(d));
     const rotation = new THREE.Euler(o.rotX ?? 0, o.rotY ?? 0, o.rotZ ?? 0, 'YXZ');
     this.geometry(geo, o.mat, o.at, rotation, o.shadow ?? true);
     if (o.collide ?? true) {
@@ -244,7 +321,7 @@ export class LevelKit {
         const merged = mergeGeometries(list, false);
         merged.userData.worldUVs = true;
         for (const geo of list) geo.dispose();
-        const mesh = new THREE.Mesh(merged, this.materials.get(key));
+        const mesh = new THREE.Mesh(merged, this.materials.get(key, ROUGH[key] ? 'shaded' : undefined));
         mesh.castShadow = cast && key !== 'water';
         mesh.receiveShadow = true;
         mesh.matrixAutoUpdate = false;

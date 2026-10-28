@@ -5,6 +5,7 @@ import type { Game } from '../game';
 import type { Interactable } from '../world/area';
 import type { LevelKit, V3 } from '../world/level-kit';
 import { biteDelay, hookChance, strikeWindow } from './fishing-math';
+import { biteScale } from '../story/conditions';
 
 export interface FishingSpotSpawn {
   /** Stable id for the spot. */
@@ -16,6 +17,7 @@ export interface FishingSpotSpawn {
 
 interface Spot {
   id: string;
+  type: FishingSpotType;
   def: FishingSpotDef;
   position: THREE.Vector3;
   rings: THREE.Mesh[];
@@ -101,7 +103,7 @@ export class Fishing {
         kit.add(ring);
         rings.push(ring);
       }
-      const spot: Spot = { id: s.id, def, position, rings };
+      const spot: Spot = { id: s.id, type: s.type, def, position, rings };
       this.spots.push(spot);
       interactables.push({
         id: `fish-${s.id}`,
@@ -196,6 +198,7 @@ export class Fishing {
       g.progress.give(def.fish);
       if (def.bait) g.progress.take(def.bait, 1);
       g.progress.addXp('fishing', def.xp);
+      g.state.counters[`caught:${def.fish}`] = (g.state.counters[`caught:${def.fish}`] ?? 0) + 1;
       g.events.emit('nodeYield', { position: spot.position.clone(), item: def.fish });
     } else {
       g.hud.toast('It slipped the hook.');
@@ -234,7 +237,7 @@ export class Fishing {
         if (this.timer >= CAST_TIME) {
           this.phase = 'waiting';
           this.timer = 0;
-          this.waitFor = biteDelay(spot.def, level, g.rng());
+          this.waitFor = this.biteWait(spot, level);
           g.events.emit('sound', { name: 'splash', position: spot.position });
           g.effects.burst(spot.position, { count: 6, color: SPLASH, speed: 1.2, size: 0.03, life: 0.4 });
         }
@@ -252,7 +255,7 @@ export class Fishing {
         if (this.timer >= this.window) {
           this.phase = 'waiting';
           this.timer = 0;
-          this.waitFor = biteDelay(spot.def, level, g.rng());
+          this.waitFor = this.biteWait(spot, level);
           g.hud.toast('Too slow. It took the bait and ran.');
         }
         break;
@@ -260,6 +263,11 @@ export class Fishing {
         if (this.timer >= REEL_TIME) this.land(spot);
         break;
     }
+  }
+
+  /** Seconds until the next bite, quicker when today's conditions say the fish are running. */
+  private biteWait(spot: Spot, level: number): number {
+    return biteDelay(spot.def, level, this.game.rng()) * biteScale(this.game.conditions, spot.type);
   }
 
   private frame(): void {

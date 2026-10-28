@@ -1,6 +1,8 @@
 import { ITEMS } from '../data/items';
+import { HOUSE_PRICE } from '../data/projects';
 import type { Game } from '../game';
 import type { PanelAction, PanelSpec } from '../ui/panels';
+import { buyHouse } from '../world/home';
 import { NPCS, type NpcId } from './npcs';
 
 function leave(game: Game): PanelAction {
@@ -13,6 +15,15 @@ function spec(id: NpcId, text: string, options: (PanelAction | null)[]): PanelSp
 
 function rotating(game: Game, lines: string[]): string {
   return lines[game.state.day % lines.length] ?? lines[0] ?? '';
+}
+
+/** Hollis has the keys to the old lamplighter's house on the plaza. */
+function housePanel(game: Game): PanelSpec {
+  const afford = game.progress.money >= HOUSE_PRICE;
+  return spec('hollis', `The old lamplighter’s place, west side of the plaza, by the market. Empty since she went up top to live with her daughter.\n\nBed, hearth, a good chest, and a window on the shaft. ${HOUSE_PRICE} bells and it’s yours. ${afford ? 'Looks like you could manage it.' : 'Save up. Nobody else is buying.'}`, [
+    { label: `Buy it (${HOUSE_PRICE} bells)`, disabled: !afford, onClick: () => void buyHouse(game) },
+    { label: 'Not yet', onClick: () => game.panels.show(() => dialogueFor(game, 'hollis')) },
+  ]);
 }
 
 /** What each townsperson says right now, given the story so far. */
@@ -42,11 +53,15 @@ export function dialogueFor(game: Game, id: NpcId): PanelSpec {
           leave(game),
         ]);
       }
+      if (has('tavi_missing') && !has('tavi_rescued')) {
+        return spec(id, 'Tavi didn’t ride up last night. Kid’s slept at that pool hut for two years, but never once missed Pell’s breakfast.\n\nMy crew won’t go past the Cut. You will. Go and look, would you? Take food. Take light.', [leave(game)]);
+      }
       return spec(id, rotating(game, [
         'Lift’s running. Bell goes when she drops. Don’t lean on the gate.',
-        'Good haul? Hollis keeps your storage. Nothing’s yours until it’s upstairs.',
+        has('hoist_built') ? 'That hoist is the best thing this town’s built in my lifetime. Fewer heroes, fewer rescues.' : 'Good haul? Hollis keeps your storage. Nothing’s yours until it’s upstairs.',
         has('irregular_seen') ? 'That thing in the galleries. I’ve worked this lift thirty years and never heard of anything like it that high up.' : 'The galleries have been noisy lately. Rockfalls, maybe. Maybe not.',
-        'If you go down, I come and get you. That’s the arrangement. It’s not free.',
+        has('sluicekeeper_defeated') ? 'Cable runs all the way to the station now. I keep riding it down just to hear the bell twice.' : 'If you go down, I come and get you. That’s the arrangement. It’s not free.',
+        has('tavi_rescued') ? 'Tavi says you hauled them out of the dark. Good. Now I’ve got two of you to worry about.' : 'If you go down, I come and get you. That’s the arrangement. It’s not free.',
       ]), [leave(game)]);
     }
 
@@ -75,6 +90,8 @@ export function dialogueFor(game: Game, id: NpcId): PanelSpec {
           ? 'Every floor marker in the Old Works lit up at once. People saw it from the yard. Tell me everything.'
           : 'They say you went into its den. The horned thing from the galleries. And came back. Tell me everything.';
         options.push({ label: keeper ? 'Tell her about the Sluicekeeper' : 'Tell her about the Hollowhorn', onClick: () => game.story.rankUp(keeper ? 'sluicekeeper' : 'hollowhorn') });
+      } else if (has('rank_two') && has('sluicekeeper_defeated') && !has('sluicekeeper_repaired')) {
+        text = 'I’ve been reading its memory core every night. It wasn’t built to fight anyone. It was the station’s keeper.\n\nCobalt for its seized joints, springs for the valve housing, and bright cores to run on. Bring them to it, and I think it would go back to work. For us, this time.';
       } else if (!has('cracked_wall_broken')) {
         text = 'Someone reported a cracked wall in the yard. Builders’ stone behind it, I’d bet. If you get a pick that can break it, I want to know what’s there.';
       } else if (!has('irregular_seen')) {
@@ -88,7 +105,7 @@ export function dialogueFor(game: Game, id: NpcId): PanelSpec {
       }
       const hasCores = p.count('dim_core') + p.count('bright_core') + p.count('radiant_core') > 0;
       if (hasCores) {
-        options.push({ label: 'Sell cores', onClick: () => game.panels.show(() => ({ name: 'Core exchange', role: 'Survey Office', rows: town.sellRows((item) => ITEMS[item].kind === 'core'), options: [{ label: 'Done', onClick: () => game.panels.show(() => dialogueFor(game, 'iona')) }], footer: `${p.money} bells` })) });
+        options.push({ label: 'Sell cores', onClick: () => game.panels.show(() => ({ name: 'Core exchange', role: 'Survey Office', rows: town.sellRows((item) => ITEMS[item].kind === 'core', 'cores'), options: [{ label: 'Done', onClick: () => game.panels.show(() => dialogueFor(game, 'iona')) }], footer: `${p.money} bells` })) });
       }
       options.push(job, leave(game));
       return spec(id, text, options);
@@ -101,7 +118,11 @@ export function dialogueFor(game: Game, id: NpcId): PanelSpec {
         ? 'You’re the new delver. Good. Copper’s fine for nails and pans, but I need iron, and nobody brings me enough.\n\nGet your Mining up, bring me eight iron ore, and I’ll forge you a pick that can cut proper rock.'
         : has('schematic_delivered') && !game.state.player.equipment.boltcaster
           ? 'Iona showed me those drawings. A boltcaster. Six iron and two good springs, and I can build it. The old constructs are full of springs, if you can get one to hold still.'
-          : 'Bring me ore and I’ll make you something worth carrying.';
+          : has('forge_bellows')
+            ? 'Hear her breathe? That’s builders’ heat. Bring me cobalt and I’ll show you an edge.'
+            : has('schematic_delivered')
+              ? 'Those drawings want more heat than this forge has ever made. There’s a bellows job on the Town Works board, if you’re feeling civic.'
+              : 'Bring me ore and I’ll make you something worth carrying.';
       return spec(id, text, [{ label: 'Use the forge', onClick: () => game.panels.show(() => town.crafting('forge')) }, job, leave(game)]);
     }
 
@@ -114,22 +135,31 @@ export function dialogueFor(game: Game, id: NpcId): PanelSpec {
         ? 'Tavi says you’ve seen Lantern Pool. Then you’ve seen the fish. Nobody fishes it anymore, which is a crime against soup.'
         : first
           ? 'Ah! A delver. Have you eaten anything down there that looked back at you? No? Bring me some anyway.\n\nThe kitchen’s open to anyone who cooks. Fish, glowcaps, whatever you carry up.'
-          : 'The kitchen’s yours. Don’t burn the good pan.';
+          : has('tavi_missing') && !has('tavi_rescued')
+            ? 'Tavi didn’t come for breakfast. Tavi never misses breakfast. If you go looking, take something to eat. Take two.'
+            : has('kitchen_expanded')
+              ? 'Two hearths! I’ve been cooking like a person with four arms. Try the pie. It’s structural.'
+              : 'The kitchen’s yours. Don’t burn the good pan.';
       return spec(id, text, [
         rodOffer ? { label: 'Ask about fishing', onClick: () => game.story.receiveRod() } : null,
         { label: 'Cook something', onClick: () => game.panels.show(() => town.crafting('kitchen')) },
-        fish ? { label: 'Sell fish', onClick: () => game.panels.show(() => ({ name: 'Pell buys fish', role: 'Kitchen', rows: town.sellRows((item) => ITEMS[item].kind === 'fish', 1.15), options: [{ label: 'Done', onClick: () => game.panels.show(() => dialogueFor(game, 'pell')) }], footer: `Pell pays a little over market. ${p.money} bells.` })) } : null,
+        fish ? { label: 'Sell fish', onClick: () => game.panels.show(() => ({ name: 'Pell buys fish', role: 'Kitchen', rows: town.sellRows((item) => ITEMS[item].kind === 'fish', 'kitchen', 1.15), options: [{ label: 'Done', onClick: () => game.panels.show(() => dialogueFor(game, 'pell')) }], footer: `Pell pays a little over market. ${p.money} bells.` })) } : null,
         job,
         leave(game),
       ]);
     }
 
-    case 'hollis':
-      return spec(id, 'Room’s yours as long as the rent’s paid, and the rent is you coming back alive.\n\nBed’s upstairs. Storage is in the cellar.', [
+    case 'hollis': {
+      const houseOffer = has('license_granted') && !has('house_bought');
+      return spec(id, has('house_bought')
+        ? 'Your room’s still here if you ever miss my snoring. Storage is in the cellar, same as your chest at home: it all ends up in the same place.'
+        : 'Room’s yours as long as the rent’s paid, and the rent is you coming back alive.\n\nBed’s upstairs. Storage is in the cellar.', [
         { label: 'Sleep until morning', onClick: () => town.goToSleep() },
         { label: 'Open storage', onClick: () => game.panels.show(() => town.bank()) },
+        houseOffer ? { label: 'Ask about the house for sale', onClick: () => game.panels.show(() => housePanel(game)) } : null,
         leave(game),
       ]);
+    }
 
     case 'bram':
       return spec(id, 'Ore, cores, odd bits of machinery. I buy it all, at a fair-ish price. Fairer if you don’t bring me forty of the same thing.', [

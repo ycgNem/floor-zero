@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { BUFFS } from '../data/buffs';
-import { itemDef, ITEMS, type ItemId } from '../data/items';
+import { countOf, itemDef, ITEMS, type ItemId } from '../data/items';
 import { RECIPES, type RecipeId, type Station } from '../data/recipes';
 import type { Game } from '../game';
 import { craft, inputsText, maxCrafts, recipeBlocker } from '../items/crafting';
 import { addItem, removeItem, summarize } from '../items/inventory';
 import { MARKET_STOCK, saleTotal, sellPrice } from '../items/market';
 import { activeJob, deliverJob } from '../story/jobs';
+import { priceScale } from '../story/conditions';
 import type { PanelAction, PanelRow, PanelSpec } from '../ui/panels';
 import type { Interactable } from '../world/area';
 import { sleep } from '../world/days';
@@ -65,13 +66,15 @@ export class Town {
 
   // ---- Shops ----
 
-  sellRows(filter: (item: ItemId) => boolean, markup = 1): PanelRow[] {
+  /** Sell buttons for what you carry. Today's demand and bounties raise what a buyer pays. */
+  sellRows(filter: (item: ItemId) => boolean, buyer: 'market' | 'cores' | 'kitchen', markup = 1): PanelRow[] {
     const state = this.game.state;
     return summarize(state.player.pack)
       .filter(({ item }) => ITEMS[item].value > 0 && filter(item))
       .map(({ item, count }) => {
         const sold = state.soldToday[item] ?? 0;
-        const value = Math.round(ITEMS[item].value * markup);
+        const boost = priceScale(this.game.conditions, item, buyer);
+        const value = Math.round(ITEMS[item].value * markup * boost);
         const sell = (n: number): void => {
           const total = saleTotal(value, state.soldToday[item] ?? 0, n);
           this.game.progress.take(item, n);
@@ -80,7 +83,7 @@ export class Town {
           this.game.events.emit('sold', { total });
         };
         return {
-          title: `${ITEMS[item].name} ×${count}`,
+          title: `${ITEMS[item].name} ×${count}${boost > 1 ? ' · in demand today' : ''}`,
           meta: `${sellPrice(value, sold)} each`,
           actions: [
             { label: 'Sell 1', onClick: () => sell(1) },
@@ -92,7 +95,7 @@ export class Town {
 
   market(): PanelSpec {
     const p = this.game.progress;
-    const rows: PanelRow[] = [{ title: 'Sell', dim: true }, ...this.sellRows(() => true)];
+    const rows: PanelRow[] = [{ title: 'Sell', dim: true }, ...this.sellRows(() => true, 'market')];
     rows.push({ title: 'Buy', dim: true });
     for (const stock of MARKET_STOCK) {
       rows.push({
@@ -163,6 +166,29 @@ export class Town {
         { label: 'Done', onClick: () => this.game.panels.close() },
       ],
     };
+  }
+
+  /**
+   * Freight service: sends everything in your pack up to storage without you riding with it.
+   * Quest items stay with you; someone has to hand them over.
+   */
+  freight(by: string): void {
+    const pack = this.game.state.player.pack;
+    const sent: string[] = [];
+    for (const { item, count } of summarize(pack)) {
+      if (ITEMS[item].kind === 'quest') continue;
+      const moved = addItem(this.game.state.bank, item, count, BANK_SLOTS);
+      removeItem(pack, item, moved);
+      if (moved > 0) sent.push(countOf(item, moved));
+    }
+    if (sent.length === 0) {
+      this.game.hud.toast('Nothing in your pack worth sending up.', 'warn');
+      return;
+    }
+    this.game.events.emit('sound', { name: 'lift' });
+    this.game.events.emit('freight', { count: sent.length });
+    this.game.hud.toast(`Sent up ${by}: ${sent.join(', ')}. It’ll be in storage.`, 'good', 4.5);
+    this.game.save();
   }
 
   private depositAll(): void {

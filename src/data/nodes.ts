@@ -21,7 +21,7 @@ export interface NodeDef {
 }
 
 export const NODES = {
-  copper_seam: { name: 'Copper seam', skill: 'mining', level: 1, item: 'copper_ore', xp: 17.5, yields: [3, 5], respawnDays: 1, hardness: 1, toolTier: 1, mat: 'ore_copper', verb: 'Mine' },
+  copper_seam: { name: 'Copper seam', skill: 'mining', level: 1, item: 'copper_ore', xp: 17.5, yields: [4, 6], respawnDays: 1, hardness: 1, toolTier: 1, mat: 'ore_copper', verb: 'Mine' },
   iron_seam: { name: 'Iron seam', skill: 'mining', level: 10, item: 'iron_ore', xp: 35, yields: [2, 4], respawnDays: 1, hardness: 1.6, toolTier: 1, mat: 'ore_iron', verb: 'Mine' },
   cobalt_seam: { name: 'Cobalt seam', skill: 'mining', level: 15, item: 'cobalt_ore', xp: 80, yields: [2, 3], respawnDays: 2, hardness: 2.2, toolTier: 3, mat: 'ore_cobalt', verb: 'Mine' },
   glowcap_patch: { name: 'Glowcaps', skill: 'botany', level: 1, item: 'glowcap', xp: 12, yields: [2, 3], respawnDays: 1, hardness: 0.6, toolTier: 0, mat: 'glow_blue', verb: 'Pick' },
@@ -29,6 +29,15 @@ export const NODES = {
 } as const satisfies Record<string, NodeDef>;
 
 export type NodeType = keyof typeof NODES;
+
+/** A node placed in a level. */
+export interface NodeSpawn {
+  /** Stable id: saved with depletion state. */
+  id: string;
+  type: NodeType;
+  at: readonly [number, number, number];
+  scale?: number;
+}
 
 export const PICKAXE_TIER: Partial<Record<ItemId, number>> = {
   copper_pickaxe: 1,

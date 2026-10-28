@@ -21,15 +21,25 @@ export function faceCenter(angleDeg: number): number {
   return -(angleDeg * Math.PI) / 180;
 }
 
-/** A caged lamp; `cone` is how far its glow hangs down through the dusty air. */
+/**
+ * A six-sided iron lantern: a peaked cap with a ring to hang it by, glowing panes in a frame,
+ * and a base with a drip finial. `cone` is how far its glow hangs down through the dusty air.
+ */
 function lanternHead(kit: LevelKit, at: V3, intensity: number, color: number, shadow: boolean, cone: number): THREE.PointLight {
   const [x, y, z] = at;
-  kit.box({ at: [x, y + 0.2, z], size: [0.26, 0.05, 0.26], mat: 'metal', collide: false, shadow: false });
-  kit.box({ at: [x, y - 0.17, z], size: [0.24, 0.04, 0.24], mat: 'metal', collide: false, shadow: false });
-  for (const [dx, dz] of [[-0.1, -0.1], [0.1, -0.1], [-0.1, 0.1], [0.1, 0.1]] as const) {
-    kit.box({ at: [x + dx, y, z + dz], size: [0.025, 0.36, 0.025], mat: 'metal', collide: false, shadow: false });
+  const part = (geometry: THREE.BufferGeometry, mat: MaterialKey, dy: number, rotation?: THREE.Euler): void => {
+    kit.geometry(geometry, mat, [x, y + dy, z], rotation, false);
+  };
+  part(new THREE.ConeGeometry(0.2, 0.16, 6), 'metal', 0.27);
+  part(new THREE.CylinderGeometry(0.18, 0.18, 0.035, 6), 'metal', 0.18);
+  part(new THREE.TorusGeometry(0.05, 0.012, 6, 14), 'metal', 0.39);
+  part(new THREE.CylinderGeometry(0.125, 0.125, 0.3, 6), 'lamp', 0.02);
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    kit.box({ at: [x + Math.cos(a) * 0.14, y + 0.02, z + Math.sin(a) * 0.14], size: [0.022, 0.32, 0.022], mat: 'metal', collide: false, shadow: false });
   }
-  kit.box({ at: [x, y, z], size: [0.15, 0.26, 0.15], mat: 'lamp', collide: false, shadow: false });
+  part(new THREE.CylinderGeometry(0.16, 0.12, 0.05, 6), 'metal', -0.15);
+  part(new THREE.ConeGeometry(0.035, 0.08, 6), 'metal', -0.21, new THREE.Euler(Math.PI, 0, 0));
   kit.add(lightCone({ x, y: y - 0.1, z }, cone, cone * 0.55, color));
   return kit.pointLight({ at: [x, y - 0.05, z], intensity, color, distance: 13, shadow, bulb: false });
 }
@@ -167,6 +177,17 @@ export function pipe(kit: LevelKit, from: V3, to: V3, radius = 0.12, mat: Materi
   const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
   const mid = a.add(b).multiplyScalar(0.5);
   kit.geometry(new THREE.CylinderGeometry(radius, radius, length, 10), mat, [mid.x, mid.y, mid.z], new THREE.Euler().setFromQuaternion(quat));
+}
+
+/** A squared timber (or iron bar) between two points, its grain along its length. */
+export function beam(kit: LevelKit, from: V3, to: V3, width: number, mat: MaterialKey, depth = width): void {
+  const a = new THREE.Vector3(...from);
+  const b = new THREE.Vector3(...to);
+  const dir = b.clone().sub(a);
+  const length = dir.length();
+  const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  const mid = a.add(b).multiplyScalar(0.5);
+  kit.geometry(new THREE.BoxGeometry(width, length, depth), mat, [mid.x, mid.y, mid.z], new THREE.Euler().setFromQuaternion(quat), false);
 }
 
 export function ladder(kit: LevelKit, at: V3, height: number, yaw: number): void {

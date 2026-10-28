@@ -619,47 +619,47 @@ function plaster(): Surface {
   return s;
 }
 
-/** Cave rock: tilted fracture facets, warped crags, strata, damp patches. */
+/**
+ * Cave rock at the scale of a hand: crags, joints, hairline fractures, grit and pits. The big
+ * shapes (relief, strata, mineral streaks) come from the level geometry and the rock shader in
+ * world space, so nothing here is large enough to show the tile repeating.
+ */
 function rock(): Surface {
-  const s = surface(9);
-  const cells = voronoi(6, 91, 0.9);
-  const cellPx = SIZE / 6;
-  const facets = new Float32Array(N);
+  const s = surface(10);
+  const lumps = fbm(5, 6, 91, 0.55);
+  const crag = warp(fbm(9, 5, 92), fbm(5, 4, 93), fbm(5, 4, 94), 110);
+  const shelves = warp(fbm(4, 4, 101), fbm(3, 4, 102), fbm(3, 4, 103), 160);
+  const joints = crackMask(95, 3, 0.35);
+  const hairline = crackMask(99, 9, 0.3);
+  const grit = fbm(160, 3, 96);
+  const pits = voronoi(40, 97, 0.9);
+  const tone = fbm(3, 5, 98);
+  const warmth = fbm(6, 4, 100);
   for (let i = 0; i < N; i++) {
-    const id = cells.id[i];
-    const a = hash(id, 1) * Math.PI * 2;
-    facets[i] = hash(id, 3) * 0.5 + ((cells.ox[i] * Math.cos(a) + cells.oy[i] * Math.sin(a)) / cellPx) * (0.4 + hash(id, 2) * 0.6);
-  }
-  const soft = blur(facets, 2);
-  const crag = fbm(12, 6, 92);
-  const wx = fbm(4, 4, 93);
-  const wy = fbm(4, 4, 94);
-  const strataBase = fbm(3, 4, 95);
-  const grit = fbm(128, 3, 96);
-  const damp = fbm(4, 5, 97);
-  const mineral = fbm(8, 5, 98);
-  const strataAt = new Float32Array(N);
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
-      const i = y * SIZE + x;
-      const ridged = 1 - Math.abs(sample(crag, x + (wx[i] - 0.5) * 80, y + (wy[i] - 0.5) * 80) * 2 - 1);
-      strataAt[i] = 0.5 + 0.5 * Math.sin(((y + (strataBase[i] - 0.5) * 260) / SIZE) * Math.PI * 2 * 9);
-      s.height[i] = soft[i] * 0.45 + ridged * 0.3 + strataAt[i] * 0.1 + (grit[i] - 0.5) * 0.12;
-    }
+    const ridged = 1 - Math.abs(crag[i] * 2 - 1);
+    // Fractured rock breaks into flat shelves with sharp steps between them.
+    const level = shelves[i] * 6;
+    const step = Math.floor(level);
+    const shelf = (step + smoothstep(0.82, 1, level - step)) / 6;
+    const id = pits.id[i];
+    const radius = (SIZE / 40) * (0.1 + hash(id, 2) * 0.18);
+    const pit = hash(id, 1) > 0.9 ? 1 - smoothstep(radius * 0.4, radius, pits.f1[i]) : 0;
+    s.height[i] = shelf * 0.45 + lumps[i] * 0.25 + ridged * ridged * 0.22 + (grit[i] - 0.5) * 0.08 - joints[i] * 0.25 - hairline[i] * 0.08 - pit * 0.08;
   }
   normalize(s.height);
-  const dark = hex(0x46423e);
-  const mid = hex(0x6a645d);
-  const brown = hex(0x5c4b3d);
-  const pale = hex(0x9a958c);
+  const deep = hex(0x2f2c29);
+  const mid = hex(0x58534c);
+  const high = hex(0x7a7368);
+  const warm = hex(0x6a5a4a);
   for (let i = 0; i < N; i++) {
     const t = s.height[i];
-    paint(s, i, [lerp(dark[0], mid[0], t), lerp(dark[1], mid[1], t), lerp(dark[2], mid[2], t)], 0.9 + (grit[i] - 0.5) * 0.3);
-    mix(s, i, brown, smoothstep(0.45, 0.75, mineral[i]) * 0.6);
-    if (mineral[i] < 0.5) mix(s, i, pale, smoothstep(0.8, 1, strataAt[i]) * 0.1);
-    const wet = smoothstep(0.55, 0.75, damp[i]);
-    shade(s, i, 1 - wet * 0.3);
-    s.rough[i] = 0.92 - wet * 0.45 + (grit[i] - 0.5) * 0.1;
+    const c: Color = t < 0.5
+      ? [lerp(deep[0], mid[0], t * 2), lerp(deep[1], mid[1], t * 2), lerp(deep[2], mid[2], t * 2)]
+      : [lerp(mid[0], high[0], (t - 0.5) * 2), lerp(mid[1], high[1], (t - 0.5) * 2), lerp(mid[2], high[2], (t - 0.5) * 2)];
+    paint(s, i, c, 0.92 + (grit[i] - 0.5) * 0.22 + (tone[i] - 0.5) * 0.18);
+    mix(s, i, warm, smoothstep(0.5, 0.8, warmth[i]) * 0.35);
+    shade(s, i, 1 - joints[i] * 0.45 - hairline[i] * 0.2);
+    s.rough[i] = 0.88 + (grit[i] - 0.5) * 0.12 - smoothstep(0.75, 1, t) * 0.1;
   }
   return s;
 }
@@ -729,57 +729,93 @@ function ancient(): Surface {
   return s;
 }
 
-/** Riveted steel plates; `rusty` corrodes them and leaves flakes of old paint. */
-function metal(rusty: boolean): Surface {
-  const s = surface(4);
-  const lay = rowsLayout([1, 1], [[0, SIZE / 2], [SIZE / 4, (3 * SIZE) / 4]]);
-  const brushed = fbm(4, 3, 121, 0.5, 1 / 60);
-  const stains = fbm(5, 6, 122);
-  const fine = fbm(96, 3, 123);
-  const scratches = scratchMap(124, 500);
-  const rustNoise = fbm(6, 6, 125);
-  const paintNoise = fbm(9, 5, 126);
-  const pits = fbm(96, 3, 127);
-  const steel = hex(0x777b80);
-  const dark = hex(0x3c3b39);
-  const rustA = hex(0x5e3420);
-  const rustB = hex(0x8a4a26);
-  const rustPit = hex(0x3b2216);
-  const paintColor = hex(0x3f4a44);
-  const toGrid = (t: number): number => Math.abs(t - Math.round(t / 64) * 64);
+/**
+ * Worked iron: hammer-mottled, scratched, darker in the stains. `rusty` corrodes it to a dark
+ * brown crust with pits, the colour of old iron left in a damp mine, not orange paint.
+ */
+function iron(rusty: boolean): Surface {
+  const s = surface(3);
+  const hammer = voronoi(28, 121, 0.9);
+  const mottle = fbm(10, 5, 122);
+  const brushed = fbm(4, 3, 123, 0.5, 1 / 40);
+  const fine = fbm(96, 3, 124);
+  const scratches = scratchMap(125, 420);
+  const stains = fbm(5, 6, 126);
+  const rustNoise = fbm(5, 6, 127);
+  const crust = fbm(48, 4, 128);
+  const pits = fbm(110, 3, 129);
+  const steel = hex(0x55585c);
+  const dark = hex(0x2a2a2a);
+  const rustDark = hex(0x3a2418);
+  const rustMid = hex(0x5a3320);
+  const rustHigh = hex(0x734228);
   for (let i = 0; i < N; i++) {
-    const e = lay.edge[i];
-    const u = lay.u[i];
-    const v = lay.v[i];
-    const w = lay.w[i];
-    const h = lay.h[i];
-    const seam = 1 - smoothstep(1.5, 3, e);
-    const d1 = Math.hypot(Math.min(Math.abs(u - 16), Math.abs(u - (w - 16))), toGrid(v - 16));
-    const d2 = Math.hypot(toGrid(u - 16), Math.min(Math.abs(v - 16), Math.abs(v - (h - 16))));
-    const rd = Math.min(d1, d2);
-    const rivet = rd < 6 ? Math.sqrt(1 - (rd / 6) ** 2) : 0;
-    paint(s, i, steel, 0.9 + (brushed[i] - 0.5) * 0.35 + (fine[i] - 0.5) * 0.08 + scratches[i] * 0.15);
-    const stain = smoothstep(0.55, 0.8, stains[i]);
-    mix(s, i, dark, stain * 0.6);
-    let metalness = lerp(0.9, 0.35, stain);
-    let rough = 0.38 + (brushed[i] - 0.5) * 0.12 + stain * 0.35 + scratches[i] * 0.1;
-    let height = 0.6 - seam * 0.5 + rivet * 0.35 - scratches[i] * 0.04 + (fine[i] - 0.5) * 0.02;
+    // Shallow hammer dimples: each Voronoi cell a little dish.
+    const dimple = hammer.f1[i] / (SIZE / 28);
+    const dish = dimple * dimple * 0.25;
+    paint(s, i, steel, 0.88 + (mottle[i] - 0.5) * 0.3 + (brushed[i] - 0.5) * 0.18 + (fine[i] - 0.5) * 0.08 + scratches[i] * 0.22 + hash(hammer.id[i], 4) * 0.06);
+    const stain = smoothstep(0.52, 0.8, stains[i]);
+    mix(s, i, dark, stain * 0.55);
+    let metalness = lerp(0.9, 0.5, stain);
+    let rough = 0.42 + (mottle[i] - 0.5) * 0.16 + stain * 0.25 + scratches[i] * 0.08 - dish * 0.1;
+    let height = 0.5 + dish - scratches[i] * 0.05 + (fine[i] - 0.5) * 0.03;
     if (rusty) {
-      const rust = smoothstep(0.32, 0.48, rustNoise[i] + (1 - smoothstep(0, 60, e)) * 0.22 + rivet * 0.2);
-      const flake = (1 - rust) * smoothstep(0.56, 0.62, paintNoise[i]);
-      shade(s, i, 0.75);
-      const pit = smoothstep(0.6, 0.8, pits[i]) * 0.8;
-      const rc: Color = [lerp(lerp(rustA[0], rustB[0], fine[i]), rustPit[0], pit), lerp(lerp(rustA[1], rustB[1], fine[i]), rustPit[1], pit), lerp(lerp(rustA[2], rustB[2], fine[i]), rustPit[2], pit)];
+      const rust = smoothstep(0.38, 0.6, rustNoise[i] + (crust[i] - 0.5) * 0.35);
+      const pit = smoothstep(0.62, 0.82, pits[i]) * rust;
+      const t = crust[i];
+      const rc: Color = t < 0.5
+        ? [lerp(rustDark[0], rustMid[0], t * 2), lerp(rustDark[1], rustMid[1], t * 2), lerp(rustDark[2], rustMid[2], t * 2)]
+        : [lerp(rustMid[0], rustHigh[0], (t - 0.5) * 2), lerp(rustMid[1], rustHigh[1], (t - 0.5) * 2), lerp(rustMid[2], rustHigh[2], (t - 0.5) * 2)];
+      shade(s, i, 0.8);
       mix(s, i, rc, rust);
-      mix(s, i, [paintColor[0] * (0.9 + (fine[i] - 0.5) * 0.2), paintColor[1], paintColor[2]], flake);
-      metalness = lerp(lerp(metalness, 0.1, rust), 0, flake);
-      rough = lerp(lerp(rough, 0.88, rust), 0.6, flake);
-      height += rust * (pits[i] - 0.5) * 0.25 + flake * 0.04;
+      shade(s, i, 1 - pit * 0.5);
+      metalness = lerp(metalness, 0.05, rust);
+      rough = lerp(rough, 0.9, rust);
+      height += rust * ((crust[i] - 0.5) * 0.3 + 0.08) - pit * 0.15;
     }
-    mix(s, i, [dark[0] * 0.5, dark[1] * 0.5, dark[2] * 0.5], seam);
     s.height[i] = height;
     s.rough[i] = rough;
     s.metal[i] = metalness;
+  }
+  return s;
+}
+
+/**
+ * Squared timber: long grain with growth rings, a few checks (drying splits) and knots, no
+ * joints or nails, so posts and beams read as single pieces. Grain runs vertically in the image.
+ */
+function timber(dark: boolean): Surface {
+  const seed = dark ? 141 : 151;
+  const s = surface(4);
+  const bend = fbm(3, 4, seed, 0.5, 4);
+  const fibre = fbm(10, 5, seed + 1, 0.55, 14);
+  const pores = fbm(200, 2, seed + 2, 0.5, 8);
+  const checksNoise = fbm(6, 4, seed + 3, 0.5, 10);
+  const weather = fbm(4, 5, seed + 4);
+  const knots = voronoi(5, seed + 5, 0.9);
+  const light = hex(dark ? 0x4e3a28 : 0x8f6a45);
+  const deep = hex(dark ? 0x241a12 : 0x56391f);
+  const grey = hex(0x6f675d);
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const i = y * SIZE + x;
+      const knotOn = hash(knots.id[i], 1) > 0.65;
+      const kr = knots.f1[i];
+      // Rings flow around knots, and run along the grain everywhere else.
+      const swirl = knotOn ? Math.max(0, 1 - kr / 60) * 40 : 0;
+      const ringPos = x + (bend[i] - 0.5) * 70 + swirl * Math.sin(Math.atan2(knots.oy[i], knots.ox[i]) * 2);
+      const ring = 0.5 + 0.5 * Math.sin(ringPos * 0.33);
+      const grain = smoothstep(0.7, 1, ring) * 0.4 + (fibre[i] - 0.5) * 1.5 + (pores[i] - 0.5) * 0.35;
+      const knot = knotOn ? 1 - smoothstep(6, 14, kr) : 0;
+      const t = clamp01(0.4 + grain * 0.45 + knot * 0.5);
+      paint(s, i, [lerp(light[0], deep[0], t), lerp(light[1], deep[1], t), lerp(light[2], deep[2], t)]);
+      mix(s, i, grey, smoothstep(0.55, 0.85, weather[i]) * (dark ? 0.15 : 0.3));
+      const check = smoothstep(0.985, 0.998, 1 - Math.abs(checksNoise[i] * 2 - 1)) * smoothstep(0.55, 0.7, weather[i]);
+      shade(s, i, 1 - check * 0.6);
+      s.height[i] = 0.55 - t * 0.12 - check * 0.35 - knot * 0.05 + (pores[i] - 0.5) * 0.05;
+      s.rough[i] = (dark ? 0.78 : 0.82) + (pores[i] - 0.5) * 0.1 + check * 0.1;
+      s.metal[i] = 0;
+    }
   }
   return s;
 }
@@ -842,9 +878,9 @@ const RECIPES: Record<string, () => Surface> = {
   dirt,
   ancient,
   wood: () => planks(false),
-  wood_dark: () => planks(true),
-  metal: () => metal(false),
-  rust: () => metal(true),
+  wood_dark: () => timber(true),
+  metal: () => iron(false),
+  rust: () => iron(true),
   roof,
   canvas,
   moss,

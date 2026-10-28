@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { damp } from '../core/math';
 import type { ItemId } from '../data/items';
+import { environment } from '../render/environment';
+import { dress, loadModels } from '../render/models';
 import type { Renderer } from '../render/renderer';
 import type { MaterialKey, MaterialLibrary } from '../world/materials';
 
@@ -8,12 +10,24 @@ export type Held = 'none' | 'pickaxe' | 'blade' | 'boltcaster' | 'rod' | 'resona
 export type SwingKind = 'mine' | 'slash' | 'slash2' | 'recoil' | 'cast' | 'grab' | 'eat' | 'thrust';
 
 const TIER_MAT: Partial<Record<ItemId, MaterialKey>> = {
-  copper_pickaxe: 'ore_copper',
-  iron_pickaxe: 'metal',
-  cobalt_pickaxe: 'ore_cobalt',
-  copper_blade: 'ore_copper',
-  iron_blade: 'metal',
-  cobalt_blade: 'ore_cobalt',
+  copper_pickaxe: 'tool_copper',
+  iron_pickaxe: 'tool_iron',
+  cobalt_pickaxe: 'tool_cobalt',
+  copper_blade: 'tool_copper',
+  iron_blade: 'tool_iron',
+  cobalt_blade: 'tool_cobalt',
+};
+
+type Tool = Exclude<Held, 'none'>;
+
+/** How each modelled tool (tools/blender/viewmodels.py) sits in view: size, angle, and a nudge. */
+const POSES: Record<Tool, { scale: number; rot: readonly [number, number, number]; at: readonly [number, number, number] }> = {
+  pickaxe: { scale: 0.75, rot: [-0.1, 0.5, 0.5], at: [0, 0.08, 0.05] },
+  blade: { scale: 0.9, rot: [-0.4, -0.25, -0.3], at: [0, 0.07, 0.04] },
+  // Angled out toward the water so the tip, and the line, stay in view while you watch the float.
+  rod: { scale: 0.85, rot: [-1.05, 0.1, 0.12], at: [0, 0.1, 0.02] },
+  boltcaster: { scale: 1, rot: [0.06, 0.08, 0], at: [-0.12, 0.1, 0.06] },
+  resonance: { scale: 1, rot: [0.05, 0.1, 0], at: [-0.08, 0.14, 0.05] },
 };
 
 /** The tool in your hands, drawn in its own overlay scene so it never clips into walls. */
@@ -22,6 +36,7 @@ export class Viewmodel {
   readonly camera = new THREE.PerspectiveCamera(55, 1, 0.01, 10);
   private readonly root = new THREE.Group();
   private readonly hemi = new THREE.HemisphereLight(0xfff1dd, 0x3a3a44, 1.1);
+  private models = new Map<string, THREE.Object3D>();
   private held: Held = 'none';
   private swingTime = 0;
   private swingDuration = 0;
@@ -38,6 +53,13 @@ export class Viewmodel {
     const key = new THREE.DirectionalLight(0xffd7a8, 1.6);
     key.position.set(-1, 2, 1.5);
     this.scene.add(this.hemi, key, this.root);
+    // Something for tool metal to reflect: a dark room, one warm lamp, the cold depths.
+    this.scene.environment = environment(renderer.gl, {
+      ambient: new THREE.Color(0.012, 0.011, 0.011),
+      lamp: new THREE.Color(4.2, 2.5, 1.15),
+      depths: new THREE.Color(0.22, 0.4, 0.75),
+      floor: new THREE.Color(0.45, 0.32, 0.22),
+    });
     renderer.setOverlay(this.scene, this.camera);
     const resize = (): void => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -47,9 +69,16 @@ export class Viewmodel {
     resize();
   }
 
+  /** Loads the modelled tools. Until (or unless) they arrive, primitive stand-ins are used. */
+  async preload(): Promise<void> {
+    this.models = await loadModels('viewmodels.glb');
+    this.root.userData.key = null;
+  }
+
   /** Dimmer in caves so the tool sits in the scene's light. */
   setAmbient(intensity: number): void {
     this.hemi.intensity = intensity;
+    this.scene.environmentIntensity = intensity * 0.9;
   }
 
   setHeld(held: Held, tierItem: ItemId | null = null): void {
@@ -165,8 +194,29 @@ export class Viewmodel {
   }
 
   private build(held: Held, tierItem: ItemId | null): THREE.Group {
+    const tier = (tierItem && TIER_MAT[tierItem]) || 'tool_iron';
+    const model = held === 'none' ? undefined : this.models.get(held);
+    const hand = this.models.get('hand');
+    if (held !== 'none' && model) {
+      const g = new THREE.Group();
+      const pose = POSES[held];
+      const tool = dress(model, this.materials, { tier });
+      if (hand) tool.getObjectByName(`${held}_grip`)?.add(dress(hand, this.materials));
+      tool.scale.setScalar(pose.scale);
+      tool.rotation.set(...pose.rot);
+      tool.position.set(...pose.at);
+      g.add(tool);
+      g.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.frustumCulled = false;
+      });
+      return g;
+    }
+    return this.buildPrimitive(held, tier);
+  }
+
+  /** The stand-in tools made of primitives, for when the models haven't loaded. */
+  private buildPrimitive(held: Held, tier: MaterialKey): THREE.Group {
     const g = new THREE.Group();
-    const tier = (tierItem && TIER_MAT[tierItem]) || 'metal';
     const glove = this.mesh(new THREE.BoxGeometry(0.09, 0.1, 0.12), 'wood_dark', 0, -0.02, 0.06);
     switch (held) {
       case 'pickaxe': {

@@ -14,20 +14,27 @@ import { Progress } from './player/progress';
 import { Viewmodel, type Held } from './player/viewmodel';
 import { Fishing } from './skills/fishing';
 import { Gathering } from './skills/gathering';
-import { SKILL_NAMES } from './data/ids';
+import { SKILL_IDS, SKILL_NAMES } from './data/ids';
+import { skillUnlocks } from './skills/guide';
 import { ITEMS } from './data/items';
 import { Story } from './story/beats';
 import { trackerJob } from './story/jobs';
-import { mainObjective } from './story/story';
+import { mainObjective, sideObjective } from './story/story';
+import { rollConditions } from './story/conditions';
+import type { DailyCondition } from './data/conditions';
 import { Town } from './town/town';
 import { Panels } from './ui/panels';
 import { ExpeditionCard } from './ui/card';
+import { TripLog } from './ui/trip';
 import { Combat } from './combat/combat';
 import { Effects } from './render/effects';
 import { CombatHud } from './ui/combat-hud';
 import { AudioEngine } from './audio/audio';
 import { bindAudio } from './audio/sound-events';
+import { MAX_AIR_LIGHTS, type AirLight, type AirSettings } from './render/air-pass';
+import { areaEnvironment } from './render/environment';
 import { Dust } from './render/atmosphere';
+import type { GradeName } from './render/grade-pass';
 import { Renderer } from './render/renderer';
 import { hasSave, loadGame, saveGame } from './save/save';
 import { createNewState, hasFlag, type WorldState } from './save/world-state';
@@ -52,6 +59,25 @@ const BASE_SENSITIVITY = 0.0022;
 /** AgX at 1.0 reads murky underground; this is the 100% brightness setting. */
 const BASE_EXPOSURE = 1.3;
 const KILL_Y = -8;
+/** Underground air when an area doesn't say: enough dust to catch lamplight. */
+const DUNGEON_AIR: AirSettings = { scatter: 0.006 };
+/**
+ * How far a lamp's glow reaches through the air, as a share of its light's reach. Physical glows
+ * have long tails that add up to a wash over the whole view; this keeps them pools.
+ */
+const AIR_REACH = 0.5;
+/**
+ * The carried lantern lights only a little of the air just in front of you. In a dark cave
+ * any veil over the whole view reads as a grey wash, so it stays faint.
+ */
+const CARRIED_REACH = 5;
+const CARRIED_AIR = 0.1;
+
+/** False if the object or anything above it is hidden. */
+function shown(object: THREE.Object3D): boolean {
+  for (let o: THREE.Object3D | null = object; o; o = o.parent) if (!o.visible) return false;
+  return true;
+}
 
 /** Composition root: owns every system and the current area. */
 export class Game {
@@ -92,6 +118,14 @@ export class Game {
   panelOpen = false;
   private readonly frameHooks: ((dt: number) => void)[] = [];
   private readonly fixedHooks: ((dt: number) => void)[] = [];
+  private air: { settings: AirSettings; grade: GradeName; fogDensity: number } = { settings: DUNGEON_AIR, grade: 'dungeon', fogDensity: 0 };
+  /** Every lamp that can light the air, refreshed now and then since lamps come and go with flags. */
+  private airSources: THREE.PointLight[] = [];
+  private airRefresh = 0;
+  /** How much of each lamp's glow shows, eased so it doesn't pop when a wall cuts it off. */
+  private readonly airVisibility = new WeakMap<THREE.PointLight, number>();
+  private readonly airLights: AirLight[] = Array.from({ length: MAX_AIR_LIGHTS }, () => ({ position: new THREE.Vector3(), color: new THREE.Color(), range: 1 }));
+  private readonly airCandidates: { light: THREE.PointLight; position: THREE.Vector3; distance: number }[] = [];
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -120,6 +154,7 @@ export class Game {
     });
     new CombatHud(this);
     new ExpeditionCard(uiRoot, this);
+    new TripLog(this.hud.root, this);
     this.scene.add(this.playerLight);
     this.bindHud();
     bindAudio(this, this.audio);
@@ -127,6 +162,7 @@ export class Game {
     this.events.on('flagSet', () => this.refreshShadows());
     this.menus = new Menus(uiRoot, this.settings, {
       hasSave: () => hasSave(),
+      skillGuide: () => SKILL_IDS.map((id) => ({ name: SKILL_NAMES[id], level: this.progress.level(id), unlocks: skillUnlocks(id) })),
       onContinue: () => this.continueGame(),
       onNewGame: () => this.newGame(),
       onResume: () => this.resume(),
@@ -224,11 +260,83 @@ export class Game {
     else this.setFlag(flag);
   }
 
+  // ---- Days ----
+
+  /** The noticeboard's conditions for today, rolled the first time anyone asks on a new day. */
+  get conditions(): readonly DailyCondition[] {
+    const c = this.state.conditions;
+    if (c.day !== this.state.day) {
+      const has = (flag: FlagId): boolean => this.hasFlag(flag);
+      this.state.conditions = { day: this.state.day, list: rollConditions(this.state.seed, this.state.day, { has, mining: this.progress.level('mining') }) };
+    }
+    return this.state.conditions.list;
+  }
+
   // ---- Areas ----
 
   setSky(color: number, density: number): void {
     this.scene.background = new THREE.Color(color);
     this.scene.fog = new THREE.FogExp2(color, density);
+    this.scene.environment = areaEnvironment(this.renderer.gl, color);
+    this.air.fogDensity = density;
+    this.renderer.setAtmosphere(this.air.settings, density, this.air.grade);
+  }
+
+  /** How the area's air holds light, and its colour grade. Areas can change it while they build. */
+  setAir(settings: AirSettings, grade: GradeName): void {
+    this.air = { settings, grade, fogDensity: this.air.fogDensity };
+    this.renderer.setAtmosphere(settings, this.air.fogDensity, grade);
+  }
+
+  /**
+   * Picks the lamps nearest the camera to light the air this frame. A lamp behind a wall keeps
+   * a little of its glow, since its light still spills round corners.
+   */
+  private updateAir(dt: number): void {
+    this.airRefresh -= dt;
+    if (this.airRefresh <= 0) {
+      this.airRefresh = 0.5;
+      this.airSources = [];
+      this.scene.traverse((o) => {
+        if (o instanceof THREE.PointLight && o !== this.playerLight && ((o.userData.air as number | undefined) ?? 1) > 0) this.airSources.push(o);
+      });
+    }
+    const eye = this.camera.position;
+    let n = 0;
+    for (const light of this.airSources) {
+      if (light.intensity <= 0 || !light.parent || !shown(light)) continue;
+      const c = (this.airCandidates[n] ??= { light, position: new THREE.Vector3(), distance: 0 });
+      c.light = light;
+      light.getWorldPosition(c.position);
+      c.distance = c.position.distanceTo(eye) - (light.distance || 20) * 0.5;
+      n++;
+    }
+    const nearest = this.airCandidates.slice(0, n).sort((a, b) => a.distance - b.distance);
+    const carried = this.playerLight.visible && this.playerLight.parent !== null;
+    const slots = MAX_AIR_LIGHTS - (carried ? 1 : 0);
+    let count = 0;
+    const ease = Math.min(1, dt * 6);
+    for (const c of nearest) {
+      if (count >= slots) break;
+      const target = this.physics.lineOfSight(eye, c.position) ? 1 : 0.3;
+      const seen = this.airVisibility.get(c.light) ?? target;
+      const vis = seen + (target - seen) * ease;
+      this.airVisibility.set(c.light, vis);
+      const out = this.airLights[count++];
+      if (!out) break;
+      out.position.copy(c.position);
+      out.color.copy(c.light.color).multiplyScalar(c.light.intensity * vis * ((c.light.userData.air as number | undefined) ?? 1));
+      out.range = (c.light.distance || 20) * AIR_REACH;
+    }
+    if (carried) {
+      const out = this.airLights[count++];
+      if (out) {
+        out.position.copy(this.playerLight.position);
+        out.color.copy(this.playerLight.color).multiplyScalar(this.playerLight.intensity * CARRIED_AIR);
+        out.range = CARRIED_REACH;
+      }
+    }
+    this.renderer.setAirLights(this.airLights.slice(0, count));
   }
 
   /** Rebuilds the current area in place, e.g. after the time of day changes. */
@@ -244,6 +352,7 @@ export class Game {
     const def = AREAS[id];
     if (!def) throw new Error(`Area not built: ${id}`);
     this.unloadArea();
+    this.setAir(def.air ?? (def.floor > 0 ? DUNGEON_AIR : { scatter: 0 }), def.grade ?? (def.floor > 0 ? 'dungeon' : 'town'));
     this.setSky(def.fog.color, def.fog.density);
     const kit = new LevelKit(this.physics, this.materials);
     const runtime = def.build({ game: this, kit });
@@ -251,6 +360,7 @@ export class Game {
     this.scene.add(kit.root);
     this.renderer.applyShadowSize(kit.root);
     this.refreshShadows();
+    this.airRefresh = 0;
     this.physics.step();
     this.area = { def, kit, runtime };
     this.state.player.area = id;
@@ -259,6 +369,8 @@ export class Game {
     this.dust.set({ visible: def.floor > 0, ...def.dust });
     this.updateLantern();
     this.viewmodel.setAmbient(def.floor > 0 ? 0.5 : 1.1);
+    // Faint underground: it's there so metal shines, not to light the caves.
+    this.scene.environmentIntensity = def.floor > 0 ? 0.35 : 0.6;
     const spawn = (spawnId ? runtime.spawns.get(spawnId) : undefined) ?? runtime.spawns.values().next().value;
     if (spawn) this.player.teleport(spawn.pos, spawn.yaw);
     this.events.emit('areaEntered', { area: id });
@@ -417,6 +529,7 @@ export class Game {
       this.state.playTime += dt;
       this.progress.tickBuffs();
       this.player.dashRechargeScale = this.progress.buffScale('dashRecharge');
+      this.player.maxDashCharges = this.progress.dashCharges();
       this.player.fixedUpdate(dt);
       const interactables = this.area?.runtime.interactables ?? [];
       this.interaction.update(dt, interactables, this.player.frozen || this.panelOpen);
@@ -469,15 +582,16 @@ export class Game {
       this.viewmodel.update(dt, speed, this.player.lookDelta.yaw, this.player.lookDelta.pitch, !this.panelOpen && this.mode === 'playing');
       this.playerLight.position.copy(this.camera.position).add(new THREE.Vector3(0, -0.25, 0));
       const target = this.interaction.target;
-      const cue = this.fishing.cue;
+      const cue = this.fishing.cue ?? this.gathering.cue;
       this.hud.setPrompt(cue ?? (target ? target.label() : null), !cue && target?.mode === 'hold' ? 'Hold E' : 'E');
-      this.hud.setDash(this.player.dashCharges, 2);
+      this.hud.setDash(this.player.dashCharges, this.player.maxDashCharges);
       this.hud.setBuffs(this.progress.activeBuffs().map((b) => ({ name: BUFFS[b.id].name, remaining: b.remaining })));
       this.hud.setHealth(this.state.player.health, this.progress.maxHealth());
-      this.hud.setObjectives(this.objectiveOverride ?? mainObjective(this), trackerJob(this));
+      this.hud.setObjectives(this.objectiveOverride ?? mainObjective(this), [trackerJob(this), sideObjective(this)].filter((line): line is string => line !== null));
     }
     this.area?.runtime.frame?.(dt, this.time);
     for (const hook of this.frameHooks) hook(dt);
+    this.updateAir(dt);
     const movers = this.shadowBake ? this.prepareShadowBake() : null;
     this.renderer.render();
     if (movers) for (const o of movers) o.castShadow = true;

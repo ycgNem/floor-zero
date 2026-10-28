@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { createRng } from '../../core/rng';
 import type { Collider } from '../../physics/physics';
+import { NODE_PLACEMENTS } from '../../data/placements';
 import type { AreaDef, Interactable, Spawn } from '../area';
 import { barrel, cart, crate, lanternPost, pipe, rails, rubble, stalactites, supportFrame, wallLantern } from '../props';
 import { irregularEvent } from '../../story/irregular';
+import { hasSwarm } from '../../story/conditions';
 
 /** Floor 2. Branching galleries, the first real fights, the collapse, and the freight gate. */
 export const brokenGalleries: AreaDef = {
@@ -184,17 +186,7 @@ export const brokenGalleries: AreaDef = {
       },
     );
 
-    game.gathering.spawn(kit, [
-      { id: 'bg-copper-1', type: 'copper_seam', at: [-2.6, 0, 6.2] },
-      { id: 'bg-copper-2', type: 'copper_seam', at: [2.6, 0, 12.5] },
-      { id: 'bg-copper-3', type: 'copper_seam', at: [-2.5, 0, 22.5] },
-      { id: 'bg-iron-1', type: 'iron_seam', at: [15.6, 0, 26] },
-      { id: 'bg-iron-2', type: 'iron_seam', at: [9.8, 0, 26] },
-      { id: 'bg-iron-3', type: 'iron_seam', at: [-13.2, 0, 15.8], scale: 0.9 },
-      { id: 'bg-glowcap-1', type: 'glowcap_patch', at: [-7, 0, 15.5] },
-      { id: 'bg-glowcap-2', type: 'glowcap_patch', at: [-13.4, 0, 12] },
-      { id: 'bg-lampmoss-1', type: 'lampmoss_patch', at: [-6.6, 0, 8] },
-    ], interactables);
+    game.gathering.spawn(kit, NODE_PLACEMENTS['broken-galleries'], interactables);
 
     game.combat.spawn(kit, [
       { id: 'bg-scuttler-1', type: 'scuttler', at: [-1, 0, 14] },
@@ -206,6 +198,16 @@ export const brokenGalleries: AreaDef = {
       { id: 'bg-slagback-1', type: 'slagback', at: [12, 0, 21], yaw: -Math.PI / 2 },
       { id: 'bg-bellcap-2', type: 'bellcap', at: [5, 0, 38] },
     ]);
+    // A swarm day: the galleries crawl with extra scuttlers, and their cores.
+    if (hasSwarm(game.conditions, 'broken-galleries')) {
+      game.combat.spawn(kit, [
+        { id: 'bg-swarm-1', type: 'scuttler', at: [-8, 0, 13.5] },
+        { id: 'bg-swarm-2', type: 'scuttler', at: [-11.5, 0, 10.5] },
+        { id: 'bg-swarm-3', type: 'scuttler', at: [-1.2, 0, 20.5] },
+        { id: 'bg-swarm-4', type: 'scuttler', at: [1.4, 0, 23] },
+        { id: 'bg-swarm-5', type: 'scuttler', at: [10, 0, 18] },
+      ]);
+    }
 
     kit.add(new THREE.HemisphereLight(0x3a4658, 0x16110d, 0.9));
     game.setSky(0x090b0e, 0.04);

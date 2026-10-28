@@ -3,7 +3,7 @@ import { SKILL_NAMES, type SkillId } from '../data/ids';
 import { ITEMS, type ItemId } from '../data/items';
 import type { Game } from '../game';
 import { addItem, countItem, removeItem, spaceFor } from '../items/inventory';
-import { PACK_SLOTS } from '../save/world-state';
+import { BIG_PACK_SLOTS, PACK_SLOTS } from '../save/world-state';
 import { levelForXp } from '../skills/xp';
 
 /** Health by license rank. Rank-ups are the big jumps. */
@@ -34,13 +34,23 @@ export class Progress {
     return countItem(this.player.pack, item);
   }
 
+  /** Pack capacity: Oren's delver's pack adds a few slots. */
+  packSlots(): number {
+    return PACK_SLOTS + (this.player.equipment.pack ? BIG_PACK_SLOTS : 0);
+  }
+
+  /** Dash charges: Tavi's lucky knot adds one. */
+  dashCharges(): number {
+    return 2 + (this.player.equipment.charm === 'lucky_knot' ? 1 : 0);
+  }
+
   hasSpace(item: ItemId, count = 1): boolean {
-    return spaceFor(this.player.pack, item, PACK_SLOTS) >= count;
+    return spaceFor(this.player.pack, item, this.packSlots()) >= count;
   }
 
   /** Adds to the pack. Returns how many fit; warns if some didn't. */
   give(item: ItemId, count = 1, quiet = false): number {
-    const added = addItem(this.player.pack, item, count, PACK_SLOTS);
+    const added = addItem(this.player.pack, item, count, this.packSlots());
     if (added > 0) this.game.events.emit('itemAdded', { item, count: added });
     if (added < count) {
       this.game.events.emit('packFull', { item });
@@ -101,7 +111,7 @@ export class Progress {
   }
 
   /** Multiplies a scaling buff stat across running buffs. 1 means no change. */
-  buffScale(stat: 'dashRecharge' | 'gatherSpeed'): number {
+  buffScale(stat: 'dashRecharge' | 'gatherSpeed' | 'damageTaken'): number {
     return this.activeBuffs().reduce((scale, b) => scale * ((BUFFS[b.id] as BuffDef)[stat] ?? 1), 1);
   }
 

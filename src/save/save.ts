@@ -1,12 +1,17 @@
 import { AREA_IDS, isFlagId, type AreaId } from '../data/ids';
 import { isBuffId } from '../data/buffs';
-import { isItemId } from '../data/items';
-import { createNewState, SAVE_VERSION, type ItemStack, type WorldState } from './world-state';
+import { isConditionId, type DailyCondition } from '../data/conditions';
+import { isItemId, type ItemId } from '../data/items';
+import { isProjectId } from '../data/projects';
+import { createNewState, SAVE_VERSION, type ItemStack, type ProjectState, type WorldState } from './world-state';
 
 type Raw = Record<string, unknown>;
 
 /** migrations[v] upgrades a version-v save to version v + 1. */
-const migrations: Record<number, (raw: Raw) => Raw> = {};
+const migrations: Record<number, (raw: Raw) => Raw> = {
+  // v2 only adds things (conditions, projects, the pack and charm slots); sanitize fills in their defaults.
+  1: (raw) => raw,
+};
 
 const key = (slot: number): string => `floor-zero/save/${slot}`;
 
@@ -21,6 +26,36 @@ function stacks(value: unknown): ItemStack[] {
     if (isRecord(entry) && isItemId(entry.item) && typeof entry.count === 'number' && entry.count > 0) {
       result.push({ item: entry.item, count: Math.floor(entry.count) });
     }
+  }
+  return result;
+}
+
+function conditions(value: unknown): WorldState['conditions'] {
+  if (!isRecord(value) || typeof value.day !== 'number' || !Array.isArray(value.list)) return { day: 0, list: [] };
+  const list: DailyCondition[] = [];
+  for (const entry of value.list) {
+    if (!isRecord(entry) || !isConditionId(entry.id)) continue;
+    const condition: DailyCondition = { id: entry.id };
+    if (typeof entry.node === 'string') condition.node = entry.node;
+    if (isItemId(entry.item)) condition.item = entry.item;
+    list.push(condition);
+  }
+  return { day: value.day, list };
+}
+
+function projects(value: unknown): WorldState['projects'] {
+  const result: WorldState['projects'] = {};
+  if (!isRecord(value)) return result;
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isProjectId(id) || !isRecord(entry)) continue;
+    const delivered: Partial<Record<ItemId, number>> = {};
+    if (isRecord(entry.delivered)) {
+      for (const [item, count] of Object.entries(entry.delivered)) {
+        if (isItemId(item) && typeof count === 'number' && count > 0) delivered[item] = Math.floor(count);
+      }
+    }
+    const state: ProjectState = { delivered, fundedOn: typeof entry.fundedOn === 'number' ? entry.fundedOn : null };
+    result[id] = state;
   }
   return result;
 }
@@ -45,6 +80,8 @@ function sanitize(raw: Raw): WorldState {
     depleted: isRecord(raw.depleted) ? (raw.depleted as Record<string, number>) : {},
     soldToday: isRecord(raw.soldToday) ? (raw.soldToday as WorldState['soldToday']) : {},
     counters: isRecord(raw.counters) ? (raw.counters as Record<string, number>) : {},
+    conditions: conditions(raw.conditions),
+    projects: projects(raw.projects),
   };
   if (!(AREA_IDS as readonly string[]).includes(merged.player.area)) merged.player.area = 'lift-plaza' as AreaId;
   return merged;

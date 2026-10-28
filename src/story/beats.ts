@@ -77,6 +77,18 @@ export class Story {
         options: [close],
       };
     }
+    if (g.hasFlag('tavi_rescued')) {
+      return {
+        name: NPCS.tavi.name,
+        role: NPCS.tavi.role,
+        text: g.hasFlag('hollowhorn_slain')
+          ? 'You went into its den and came out. With a horn. I went into a tunnel and came out on your shoulder. I’m choosing to find this inspiring.'
+          : g.hasFlag('sluicekeeper_repaired')
+            ? 'I rode down to the station yesterday just to watch your Sluicekeeper work. It looked at me. I think it remembered I’m with you.'
+            : 'Leg’s healing. Pride isn’t. The horned thing’s den is past that tunnel, if you ever want to see what pushed it up here. I don’t. Not yet.',
+        options: [close],
+      };
+    }
     return {
       name: NPCS.tavi.name,
       role: NPCS.tavi.role,

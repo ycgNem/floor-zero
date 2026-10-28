@@ -129,6 +129,13 @@ export class Sluicekeeper extends Enemy {
     this.setState('off');
   }
 
+  /** Repaired: it tends the pumps again, its lens burning lamp-warm instead of cold. */
+  befriend(): void {
+    this.retire();
+    (this.lens.userData.baseEmissive as THREE.Color).set(0xffb35e);
+    this.setState('tending');
+  }
+
   /** The main controls were engaged. */
   wake(): void {
     if (this.state !== 'dormant') return;
@@ -301,6 +308,18 @@ export class Sluicekeeper extends Enemy {
 
   protected override animate(_dt: number, time: number): void {
     const s = this.state;
+    if (s === 'tending') {
+      // Back at work: upright, scanning its pumps slowly, and venting now and then.
+      this.lens.emissiveIntensity = 2.4 + Math.sin(time * 1.3) * 0.3;
+      this.crystals.emissiveIntensity = 0.9;
+      this.torso.position.y = 0.8;
+      this.head.rotation.x = 0.1 + Math.sin(time * 0.4) * 0.05;
+      this.head.rotation.y = Math.sin(time * 0.23) * 0.7;
+      if (Math.sin(time * 0.37) > 0.995) {
+        this.game.effects.burst(this.position.clone().add(new THREE.Vector3(0, 2.6, 0)), { count: 2, color: 0xd8dde0, speed: 1.2, size: 0.12, life: 1.4, gravity: -1.5, spread: 0.2 });
+      }
+      return;
+    }
     const open = s === 'vent' ? Math.min(1, this.stateTime * 4) * (this.stateTime > VENT_TIME - 0.3 ? (VENT_TIME - this.stateTime) / 0.3 : 1) : 0;
     this.panels.forEach((hinge, i) => (hinge.rotation.y = (i === 0 ? -1 : 1) * open * 1.6));
     this.cores.emissiveIntensity = 0.5 + open * 4 + (open > 0 ? Math.sin(time * 10) * 0.6 : 0);

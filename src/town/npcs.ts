@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { damp, wrapAngle } from '../core/math';
+import type { NpcId } from '../data/ids';
 
-export type NpcId = 'mara' | 'iona' | 'oren' | 'pell' | 'hollis' | 'bram' | 'tavi';
+export type { NpcId };
 
 export interface NpcLook {
   coat: number;

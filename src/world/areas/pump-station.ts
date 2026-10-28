@@ -3,11 +3,14 @@ import { createRng } from '../../core/rng';
 import { Sluicekeeper } from '../../combat/enemies/sluicekeeper';
 import { ITEMS, type ItemId } from '../../data/items';
 import { insideOut } from '../../render/shapes';
+import { NODE_PLACEMENTS } from '../../data/placements';
 import type { AreaDef, Interactable, Spawn } from '../area';
 import type { V3 } from '../level-kit';
 import { pipe, rubble, stalactites, wallLantern } from '../props';
+import { liftCage } from '../structures';
 import { Surges } from '../surges';
 import { pool } from '../water';
+import { deliver, owedText } from '../../town/works';
 
 /** The pump hall's sunken basin, where the Sluicekeeper stands. */
 const BASIN = { x: 0, z: 38, r: 11, floor: -1.2, shallow: -1.1, flooded: -0.35 };
@@ -62,6 +65,7 @@ export const pumpStation: AreaDef = {
         { side: 'n', width: 4, height: 4.5 },
         { side: 'w', width: 3, height: 3.5 },
         { side: 'e', width: 3, height: 3.5 },
+        { side: 'e', at: -14, width: 3, height: 3.5 },
         { side: 's', width: 2.4, height: 3 },
       ],
     });
@@ -111,6 +115,14 @@ export const pumpStation: AreaDef = {
       for (const w of work) w.light.intensity = on ? w.full : 0;
     };
     setPower(has('pump_power_restored'));
+
+    // The station lift, in an alcove off the hall: dead until the station runs, then a ride home.
+    const LIFT: V3 = [21.1, 0, 24];
+    kit.room({ at: LIFT, size: [4.2, 14, 4.2], wall: 'stone_wall', floor: 'ancient', ceiling: null, openings: [{ side: 'w', width: 3, height: 3.5 }] });
+    liftCage(kit, LIFT, -Math.PI / 2, 12);
+    const liftLamp = kit.pointLight({ at: [LIFT[0], 3.4, LIFT[2]], color: 0xffc58a, intensity: 0, distance: 9 });
+    const liftRunning = (): boolean => has('sluicekeeper_defeated');
+    if (liftRunning()) liftLamp.intensity = 7;
 
     // The generator wing: three cells to feed with cores.
     kit.room({ at: [-24, 0, 38], size: [10, 6, 10], wall: 'stone_wall', floor: 'ancient', openings: [{ side: 'e', width: 3, height: 3.5 }] });
@@ -198,10 +210,13 @@ export const pumpStation: AreaDef = {
     if (has('pick_head_found')) lockerDoor.rotation.y = -1.2;
     kit.add(lockerDoor);
 
-    // The Sluicekeeper, standing in its basin.
+    // The Sluicekeeper, standing in its basin. Shut down after the fight; back at work once repaired.
     let flooding = false;
     const keeper = new Sluicekeeper(game.combat, 'ps-sluicekeeper', new THREE.Vector3(BASIN.x, 0, BASIN.z), Math.PI);
-    if (has('sluicekeeper_defeated')) {
+    if (has('sluicekeeper_repaired')) {
+      keeper.befriend();
+      kit.add(keeper.group);
+    } else if (has('sluicekeeper_defeated')) {
       keeper.retire();
       kit.add(keeper.group);
     } else {
@@ -279,6 +294,45 @@ export const pumpStation: AreaDef = {
         },
       },
       {
+        id: 'ps-station-lift',
+        position: new THREE.Vector3(LIFT[0], 1.2, LIFT[2]),
+        radius: 1.7,
+        range: 3.5,
+        mode: 'press',
+        enabled: () => true,
+        label: () => (liftRunning() ? 'Ride the station lift up to Bellwether' : 'Station lift (the cable’s dead while the station is down)'),
+        press: () => {
+          if (liftRunning()) void game.travel('lift-plaza', 'lift', 'lift');
+          else game.hud.toast('The cage hangs dead on its cable. Whatever drives it, the station isn’t feeding it.', 'warn');
+        },
+      },
+      {
+        id: 'ps-keeper',
+        position: new THREE.Vector3(BASIN.x, 2.2, BASIN.z),
+        radius: 1.8,
+        range: 7,
+        mode: 'press',
+        enabled: () => has('sluicekeeper_defeated'),
+        label: () => {
+          if (has('sluicekeeper_repaired')) return 'Ask the Sluicekeeper to send your haul up';
+          const left = owedText(game, 'keeper_repair');
+          return `Repair the Sluicekeeper (still needs ${left})`;
+        },
+        press: () => {
+          if (has('sluicekeeper_repaired')) {
+            game.town.freight('in the Sluicekeeper’s cradle');
+            return;
+          }
+          deliver(game, 'keeper_repair');
+          if (has('sluicekeeper_repaired')) {
+            keeper.befriend();
+            game.player.addShake(0.3);
+            game.hud.announce('The Sluicekeeper', 'Back at work');
+            game.hud.toast('Its lens comes up lamp-warm. It looks at you for a long moment, then turns back to its pumps.', 'good', 6);
+          }
+        },
+      },
+      {
         id: 'ps-to-cut',
         position: new THREE.Vector3(0, 2.6, -6.6),
         radius: 1.3,
@@ -289,11 +343,7 @@ export const pumpStation: AreaDef = {
       },
     );
 
-    game.gathering.spawn(kit, [
-      { id: 'ps-cobalt-1', type: 'cobalt_seam', at: [27.4, 0, 34.6] },
-      { id: 'ps-cobalt-2', type: 'cobalt_seam', at: [27.4, 0, 41.6] },
-      { id: 'ps-iron-1', type: 'iron_seam', at: [-16.6, 0, 22] },
-    ], interactables);
+    game.gathering.spawn(kit, NODE_PLACEMENTS['pump-station'], interactables);
     if (!has('sluicekeeper_defeated')) {
       game.combat.spawn(kit, [
         { id: 'ps-lampwarden-1', type: 'lampwarden', at: [-25, 0, 36.5], yaw: Math.PI / 2 },
@@ -304,7 +354,10 @@ export const pumpStation: AreaDef = {
 
     kit.add(new THREE.HemisphereLight(0x3e4a55, 0x100f0f, 0.95));
 
-    const spawns = new Map<string, Spawn>([['from-cut', { pos: new THREE.Vector3(0, 0, -2.4), yaw: Math.PI }]]);
+    const spawns = new Map<string, Spawn>([
+      ['from-cut', { pos: new THREE.Vector3(0, 0, -2.4), yaw: Math.PI }],
+      ['lift', { pos: new THREE.Vector3(LIFT[0], 0, LIFT[2]), yaw: Math.PI / 2 }],
+    ]);
 
     return {
       spawns,
@@ -322,6 +375,7 @@ export const pumpStation: AreaDef = {
       frame: (dt, time) => {
         surges.frame(dt, time);
         basin.frame(dt, time);
+        if (keeper.state === 'tending') keeper.frame(dt, time);
       },
       dispose: () => {
         offKilled();

@@ -103,11 +103,27 @@ How we get there:
 
 Texture density: about 512 texture pixels per metre up close (a 1K texture tiling every 2 m), with anisotropic filtering on floors.
 
+## Blender scripts
+
+Props are built by Python scripts in `tools/blender/`, not hand-edited `.blend` files, so they can be reviewed, rerun, and changed by anyone.
+
+```
+blender --background --factory-startup --python tools/blender/viewmodels.py -- --preview <out.png>
+```
+
+- `common.py` has the shared helpers: lofts along paths, lathes, tori, boxes, smooth shading split by angle, export, and a Workbench preview render.
+- `viewmodels.py` builds the held tools and the gloved hand into `public/assets/models/viewmodels.glb`. Each tool is a root empty named for its `Held` kind, with a `<tool>_grip` empty where the hand goes.
+- Name each Blender material for a MaterialLibrary key (`wood`, `leather`, `metal`). The game swaps in its own materials at load, and `tier` becomes the tool's metal.
+- `--preview` renders every model in a grid before exporting, so a script change can be checked without starting the game.
+- Always run headless. The live Blender session is shared with other projects.
+
 ## Textures
 
 `node tools/textures.ts [name ...]` regenerates the level kit's texture sets into `public/assets/textures/` as `<name>_albedo.jpg`, `<name>_normal.jpg` (OpenGL convention) and `<name>_orm.jpg` (occlusion, roughness, metalness). It needs ImageMagick's `magick` on the PATH. Every map is periodic, so everything tiles.
 
-- Structured surfaces (brick, stone courses, flagstones, cobbles, planks, roof tiles, panels, riveted plates) are laid out block by block, with per-block colour and surface variation.
+- Structured surfaces (brick, stone courses, flagstones, cobbles, planks, roof tiles) are laid out block by block, with per-block colour and surface variation.
+- Rock, iron, rust, and timber carry detail at hand scale only. The big shapes (rock relief and strata, colour drift) come from the geometry and from shaders in world space, so nothing large enough to show the tile repeating is baked in.
+- Timber's grain runs vertically in the image; level geometry turns it to run along each beam.
 - Organic surfaces (rock, dirt, plaster, moss, canvas) take a source image if one exists at `assets-src/textures/<name>.png`, made seamless by the tool. That's where ComfyUI renders go.
 - Each material's real-world tile size lives in `src/world/materials.ts`. Level geometry and loose props both get box-projected UVs in metres.
 
