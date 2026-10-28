@@ -1,0 +1,21 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #14171d;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
+  color: #f1e9dc;
+}
